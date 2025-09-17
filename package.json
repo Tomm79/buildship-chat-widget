@@ -1,10 +1,10 @@
 {
   "name": "@buildshipapp/chat-widget",
-  "version": "1.4.1",
+  "version": "1.4.1_dev",
   "description": "A chat widget that can be paired with BuildShip workflows built using the Assistant API.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rowyio/buildship-chat-widget.git"
+    "url": "https://github.com/tomm79/buildship-chat-widget.git"
   },
   "keywords": [
     "buildship",
@@ -37,6 +37,7 @@
     "focus-trap": "^7.5.4",
     "html-minifier": "^4.0.0",
     "marked": "^12.0.0",
-    "microbundle": "^0.15.1"
+    "microbundle": "^0.15.1",
+    "terser": "^5.44.0"
   }
 }

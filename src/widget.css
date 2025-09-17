@@ -20,7 +20,7 @@
     opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
   --buildship-chat-widget-title-weight: 600;
   --buildship-chat-widget-button-weight: 500;
-  --buildship-chat-widget-border-radius: 1rem;
+  --buildship-chat-widget-border-radius: 0;
 }
 
 @media (prefers-color-scheme: dark) {

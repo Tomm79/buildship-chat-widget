@@ -28,7 +28,7 @@ const linkRenderer = renderer.link;
 // To open links in a new tab
 renderer.link = (href, title, text) => {
   const parsed = linkRenderer.call(renderer, href, title, text);
-  return parsed.replace(/^<a /, '<a target="_blank" rel="nofollow" ');
+  return parsed.replace(/^<a /, '<a target="_self" rel="nofollow" ');
 };
 
 const config: WidgetConfig = {
