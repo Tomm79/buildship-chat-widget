@@ -1,25 +1,64 @@
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
     href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap"
     rel="stylesheet"
-  />
+  />  
+  <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        .button-container {
+            margin-bottom: 20px;
+        }
+        .button {
+            padding: 20px;
+            font-size: 36px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 15px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #0056b3;
+        }
+		
+		#buildship-chat-widget__container {
+			width: 50rem;
+		}
+		
+    </style>
 </head>
 
 <script src="./dist/index.umd.js" defer></script>
 
 <!-- Edit config below to customize the widget -->
 <script>
-  window.addEventListener("load", () => {
-    window.buildShipChatWidget.config.widgetTitle = "Chatbot";
-    window.buildShipChatWidget.config.greetingMessage =
-      "Hello there! Here's a super long greeting.\n\nJust to see how you'd handle multiple lines and linebreaks.";
-    window.buildShipChatWidget.config.url = "";
-    window.buildShipChatWidget.config.openOnLoad = true;
-  });
+	document.addEventListener('DOMContentLoaded', function() {
+		window.buildShipChatWidget.config.url = "https://w1pybp.buildship.run/avgs-julia";
+		window.buildShipChatWidget.config.responseIsAStream = true;
+		window.buildShipChatWidget.config.widgetTitle = "Julia [online]";
+		window.buildShipChatWidget.config.disableErrorAlert = false;
+//			window.buildShipChatWidget.config.greetingMessage = "Suchst Du nach einem Coach oder hast ein Frage?";
+		window.buildShipChatWidget.config.openOnLoad = false;
+		window.buildShipChatWidget.config.closeOnOutsideClick = false;	
+		
+	});
+	
 </script>
 
 <body data-theme="light" style="font-family: 'Roboto'">
-  <button data-buildship-chat-widget-button style="position: absolute; right: 0; bottom: 0;">Button</button>
+	<div class="button-container">
+		<p class="button" data-buildship-chat-widget-button>Julia von AVGS Coaching Team</p>
+    </div>
 </body>
