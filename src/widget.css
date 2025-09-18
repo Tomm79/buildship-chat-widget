@@ -20,7 +20,7 @@
     opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
   --buildship-chat-widget-title-weight: 600;
   --buildship-chat-widget-button-weight: 500;
-  --buildship-chat-widget-border-radius: 0;
+  --buildship-chat-widget-border-radius: 1rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -81,7 +81,7 @@
   box-sizing: border-box;
   background-color: var(--buildship-chat-widget-bg-color);
   box-shadow: var(--buildship-chat-widget-shadow);
-  border-radius: var(--buildship-chat-widget-border-radius);
+  border-radius: 0; /*var(--buildship-chat-widget-border-radius);*/
   font-family: inherit;
   font-size: 1rem;
   color: var(--buildship-chat-widget-primary-color-text);

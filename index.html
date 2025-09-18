@@ -49,10 +49,12 @@
 		window.buildShipChatWidget.config.responseIsAStream = true;
 		window.buildShipChatWidget.config.widgetTitle = "Julia [online]";
 		window.buildShipChatWidget.config.disableErrorAlert = false;
-//			window.buildShipChatWidget.config.greetingMessage = "Suchst Du nach einem Coach oder hast ein Frage?";
+		window.buildShipChatWidget.config.greetingMessage = "Hallo! Ich bin Julia, deine Kundenberaterin im AVGS Coaching Team. Wie kann ich dir heute helfen? Suchst du nach einem Coach oder hast du Fragen zum AVGS Coaching?";
 		window.buildShipChatWidget.config.openOnLoad = false;
-		window.buildShipChatWidget.config.closeOnOutsideClick = false;	
-		
+		window.buildShipChatWidget.config.closeOnOutsideClick = true;	
+		window.buildShipChatWidget.config.linkTarget = "self";	
+//		window.buildShipChatWidget.config.threadId = ;
+		window.buildShipChatWidget.config.urlFetchThreadHistory = "https://w1pybp.buildship.run/julia_thread_v2";
 	});
 	
 </script>

@@ -11,6 +11,27 @@ const WIDGET_MESSAGES_HISTORY_CONTAINER_ID =
   "buildship-chat-widget__messages_history";
 const WIDGET_THINKING_BUBBLE_ID = "buildship-chat-widget__thinking_bubble";
 
+// Functions to handle thread id as session cookie
+const THREAD_ID_COOKIE_NAME = "chatThreadID";
+
+function getCookieValue(name: string): string | null {
+  const cookies = document.cookie ? document.cookie.split(";") : [];
+  for (const cookie of cookies) {
+    const [cookieName, ...rest] = cookie.split("=");
+    if (cookieName.trim() === name) {
+      return decodeURIComponent(rest.join("="));
+    }
+  }
+  return null;
+}
+
+function setSessionCookie(value: string) {
+  if (value) {
+    document.cookie = `${THREAD_ID_COOKIE_NAME}=${encodeURIComponent(value)}; path=/`;
+  }
+}
+// end session cookie
+
 export type WidgetConfig = {
   url: string;
   threadId: string | null;
@@ -21,6 +42,8 @@ export type WidgetConfig = {
   disableErrorAlert: boolean;
   closeOnOutsideClick: boolean;
   openOnLoad: boolean;
+  linkTarget: string | null;
+  urlFetchThreadHistory: string | null;
 };
 
 const renderer = new marked.Renderer();
@@ -28,12 +51,13 @@ const linkRenderer = renderer.link;
 // To open links in a new tab
 renderer.link = (href, title, text) => {
   const parsed = linkRenderer.call(renderer, href, title, text);
-  return parsed.replace(/^<a /, '<a target="_self" rel="nofollow" ');
+  return parsed.replace(/^<a /, '<a target="_' + config.linkTarget + '" rel="nofollow" ');
 };
 
 const config: WidgetConfig = {
   url: "",
-  threadId: null,
+//  threadId: null,
+  threadId: getCookieValue(THREAD_ID_COOKIE_NAME),
   responseIsAStream: false,
   user: {},
   widgetTitle: "Chatbot",
@@ -41,15 +65,134 @@ const config: WidgetConfig = {
   disableErrorAlert: false,
   closeOnOutsideClick: true,
   openOnLoad: false,
+  linkTarget: "self",
+  urlFetchThreadHistory: null,
   ...(window as any).buildShipChatWidget?.config,
 };
 
 let cleanup = () => {};
 
+// Holds preloaded messages so we can hydrate the UI on open.
+type PrefetchedThreadMessage = {
+  message: string;
+  timestamp: number;
+  from: "system" | "user";
+};
+
+let prefetchedThreadMessages: PrefetchedThreadMessage[] = [];
+let prefetchedThreadMessagesPromise: Promise<void> | null = null;
+let prefetchedMessagesInjected = false;
+
+// Map API roles to widget message variants.
+function mapChatRole(role: unknown): "system" | "user" {
+  return role === "user" ? "user" : "system";
+}
+
+// Convert timestamps from the API to millisecond precision.
+function normalizeTimestamp(input: unknown): number {
+  if (typeof input === "number" && Number.isFinite(input)) {
+    return input > 1_000_000_000_000 ? input : input * 1000;
+  }
+  if (typeof input === "string") {
+    const numeric = Number(input);
+    if (Number.isFinite(numeric)) {
+      return numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+    }
+  }
+  return Date.now();
+}
+
+// Load historical messages for an existing thread id.
+async function fetchThreadMessages(url: string, threadId: string) {
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ threadId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `BuildShip Chat Widget: Failed to fetch thread messages (${response.status} ${response.statusText})`
+      );
+    }
+
+    const payload = await response.json();
+    const rawMessages: any[] = Array.isArray(payload?.value?.data)
+      ? payload.value.data
+      : [];
+
+    prefetchedThreadMessages = rawMessages
+      .map((item) => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+        const contentEntry = Array.isArray((item as any).content)
+          ? (item as any).content.find(
+              (part: any) => typeof part?.text?.value === "string"
+            )
+          : undefined;
+        const textValue = contentEntry?.text?.value;
+        if (typeof textValue !== "string") {
+          return null;
+        }
+
+        return {
+          message: textValue,
+          timestamp: normalizeTimestamp((item as any).created_at),
+          from: mapChatRole((item as any).role),
+        };
+      })
+      .filter(
+        (entry): entry is PrefetchedThreadMessage => entry !== null
+      )
+      .sort((a, b) => a.timestamp - b.timestamp);
+  } catch (error) {
+    console.error("BuildShip Chat Widget: Failed to load thread history", error);
+    prefetchedThreadMessages = [];
+    throw error;
+  }
+}
+
+// Render prefetched messages once the widget container exists.
+async function injectPrefetchedThreadMessages() {
+  if (prefetchedMessagesInjected) {
+    return;
+  }
+
+  if (!config.urlFetchThreadHistory || !config.threadId) {
+    return;
+  }
+
+  if (prefetchedThreadMessagesPromise) {
+    try {
+      await prefetchedThreadMessagesPromise;
+    } catch {
+      prefetchedMessagesInjected = true;
+      return;
+    }
+  }
+
+  if (!prefetchedThreadMessages.length) {
+    prefetchedMessagesInjected = true;
+    return;
+  }
+
+  prefetchedMessagesInjected = true;
+  for (const message of prefetchedThreadMessages) {
+    const messageId = `buildship-chat-widget__message--${message.from}--${message.timestamp}`;
+    if (messagesHistory.querySelector(`#${messageId}`)) {
+      continue;
+    }
+    await createNewMessageEntry(message.message, message.timestamp, message.from);
+  }
+}
 async function init() {
   const styleElement = document.createElement("style");
   styleElement.innerHTML = css;
-
+console.log(config);
   document.head.insertBefore(styleElement, document.head.firstChild);
 
   // Slight delay to allow DOMContent to be fully loaded
@@ -60,11 +203,30 @@ async function init() {
     .querySelector("[data-buildship-chat-widget-button]")
     ?.addEventListener("click", open);
 
+  if (
+    config.threadId &&
+    config.urlFetchThreadHistory &&
+    !prefetchedThreadMessagesPromise
+  ) {
+    // Prefetch thread history early when a thread id is known.
+    prefetchedThreadMessagesPromise = fetchThreadMessages(
+      config.urlFetchThreadHistory,
+      config.threadId
+    );
+  }
+
   if (config.openOnLoad) {
+    if (prefetchedThreadMessagesPromise) {
+      try {
+        await prefetchedThreadMessagesPromise;
+      } catch {
+        // continue opening even if history failed to load
+      }
+    }
     const target = document.querySelector(
       "[data-buildship-chat-widget-button]"
     );
-    open({ target } as Event);
+    await open({ target } as Event);
   }
 }
 window.addEventListener("load", init);
@@ -91,7 +253,7 @@ const trap = createFocusTrap(containerElement, {
   allowOutsideClick: true,
 });
 
-function open(e: Event) {
+async function open(e: Event) {
   if (config.closeOnOutsideClick) {
     document.body.appendChild(optionalBackdrop);
   }
@@ -110,6 +272,9 @@ function open(e: Event) {
 
   const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
   chatbotBody.prepend(messagesHistory);
+  // Inject prefetched history before showing optional greeting.
+  await injectPrefetchedThreadMessages();
+
   if (config.greetingMessage && messagesHistory.children.length === 0) {
     createNewMessageEntry(config.greetingMessage, Date.now(), "system");
   }
@@ -220,6 +385,12 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
 
     await createNewMessageEntry(responseMessage, Date.now(), "system");
     config.threadId = config.threadId ?? responseThreadId ?? null;
+	
+	// Set threadId from config to session cookie
+    if (config.threadId) {
+	    setSessionCookie(config.threadId);  
+    }
+	
   } else {
     console.error("BuildShip Chat Widget: Server error", res);
     if (!config.disableErrorAlert)
@@ -257,7 +428,6 @@ const handleStreamedResponse = async (res: Response) => {
   }
 
   const threadIdFromHeader = res.headers.get("x-thread-id");
-
   const reader = res.body.getReader();
   let responseMessage = "";
   let responseThreadId = "";
@@ -295,6 +465,11 @@ const handleStreamedResponse = async (res: Response) => {
     config.threadId ??
     threadIdFromHeader ?? // If the threadId isn't set, use the one from the header
     (responseThreadId !== "" ? responseThreadId : null); // If the threadId isn't set and one isn't included in the header, use the one from the response
+	
+  // Set threadId from config to session cookie
+  if (config.threadId) {
+	  setSessionCookie(config.threadId);  
+  }
 };
 
 async function submit(e: Event) {
