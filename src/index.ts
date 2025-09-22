@@ -348,12 +348,13 @@ async function open(e: Event) {
 
   const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
   chatbotBody.prepend(messagesHistory);
-  // Inject prefetched history before showing optional greeting.
-  await injectPrefetchedThreadMessages();
 
   if (config.greetingMessage && messagesHistory.children.length === 0) {
     createNewMessageEntry(config.greetingMessage, Date.now(), "system");
   }
+
+  // Inject prefetched history before showing optional greeting.
+  await injectPrefetchedThreadMessages();
 
   const target = (e?.target as HTMLElement) || document.body;
   cleanup = autoUpdate(target, containerElement, () => {
