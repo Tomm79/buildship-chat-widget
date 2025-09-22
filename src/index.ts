@@ -10,6 +10,8 @@ const WIDGET_CONTAINER_ID = "buildship-chat-widget__container";
 const WIDGET_MESSAGES_HISTORY_CONTAINER_ID =
   "buildship-chat-widget__messages_history";
 const WIDGET_THINKING_BUBBLE_ID = "buildship-chat-widget__thinking_bubble";
+const WIDGET_CLEAR_BUTTON_ID = "buildship-chat-widget__clear";
+
 
 // Functions to handle thread id as session cookie
 const THREAD_ID_COOKIE_NAME = "chatThreadID";
@@ -19,6 +21,7 @@ function getCookieValue(name: string): string | null {
   for (const cookie of cookies) {
     const [cookieName, ...rest] = cookie.split("=");
     if (cookieName.trim() === name) {
+console.log("threadId aus Cookie gelesen.");
       return decodeURIComponent(rest.join("="));
     }
   }
@@ -30,6 +33,10 @@ function setSessionCookie(value: string) {
     document.cookie = `${THREAD_ID_COOKIE_NAME}=${encodeURIComponent(value)}; path=/`;
   }
 }
+function clearSessionCookie() {
+  document.cookie = `${THREAD_ID_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0`;
+}
+
 // end session cookie
 
 export type WidgetConfig = {
@@ -124,6 +131,10 @@ async function fetchThreadMessages(url: string, threadId: string) {
       ? payload.value.data
       : [];
 
+    if (threadId !== config.threadId) {
+      return;
+    }
+
     prefetchedThreadMessages = rawMessages
       .map((item) => {
         if (!item || typeof item !== "object") {
@@ -189,6 +200,36 @@ async function injectPrefetchedThreadMessages() {
     await createNewMessageEntry(message.message, message.timestamp, message.from);
   }
 }
+async function handleClearButtonClick(e: Event) {
+  e.preventDefault();
+  const button = e.currentTarget as HTMLButtonElement | null;
+  button?.setAttribute("disabled", "");
+
+  try {
+    clearSessionCookie();
+    config.threadId = null;
+    prefetchedThreadMessages = [];
+    prefetchedThreadMessagesPromise = null;
+    prefetchedMessagesInjected = false;
+
+    if (thinkingBubble.parentElement === messagesHistory) {
+      thinkingBubble.remove();
+    }
+
+    messagesHistory.innerHTML = "";
+
+    if (config.greetingMessage) {
+      await createNewMessageEntry(config.greetingMessage, Date.now(), "system");
+    }
+
+    const inputElement = document.getElementById(
+      "buildship-chat-widget__input"
+    ) as HTMLInputElement | null;
+    inputElement?.focus();
+  } finally {
+    button?.removeAttribute("disabled");
+  }
+}
 async function init() {
   const styleElement = document.createElement("style");
   styleElement.innerHTML = css;
@@ -220,6 +261,7 @@ console.log(config);
       try {
         await prefetchedThreadMessagesPromise;
       } catch {
+        console.error("continue opening even if history failed to load");
         // continue opening even if history failed to load
       }
     }
@@ -269,6 +311,11 @@ async function open(e: Event) {
     "buildship-chat-widget__title"
   )!;
   chatbotHeaderTitle.appendChild(chatbotHeaderTitleText);
+  
+  const clearButton = document.getElementById(
+    WIDGET_CLEAR_BUTTON_ID
+  ) as HTMLButtonElement | null;
+  clearButton?.addEventListener("click", handleClearButtonClick);
 
   const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
   chatbotBody.prepend(messagesHistory);

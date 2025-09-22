@@ -125,6 +125,24 @@
 #buildship-chat-widget__title_icon path {
   fill: var(--buildship-chat-widget-primary-color-text);
 }
+#buildship-chat-widget__clear {
+  border: none;
+  background: transparent;
+  color: var(--buildship-chat-widget-secondary-color-text);
+  font-size: 0.875rem;
+  font-weight: var(--buildship-chat-widget-button-weight);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  transition: var(--buildship-chat-widget-button-transition);
+}
+#buildship-chat-widget__clear:hover,
+#buildship-chat-widget__clear:focus-visible {
+  color: var(--buildship-chat-widget-primary-color);
+}
+#buildship-chat-widget__clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 #buildship-chat-widget__title_text {
   width: 100%;
   overflow: hidden;
