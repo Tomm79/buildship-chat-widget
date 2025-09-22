@@ -21,10 +21,10 @@ function getCookieValue(name: string): string | null {
   for (const cookie of cookies) {
     const [cookieName, ...rest] = cookie.split("=");
     if (cookieName.trim() === name) {
-console.log("threadId aus Cookie gelesen.");
       return decodeURIComponent(rest.join("="));
     }
   }
+
   return null;
 }
 
@@ -51,6 +51,7 @@ export type WidgetConfig = {
   openOnLoad: boolean;
   linkTarget: string | null;
   urlFetchThreadHistory: string | null;
+  addClearChat: boolean;
 };
 
 const renderer = new marked.Renderer();
@@ -74,6 +75,7 @@ const config: WidgetConfig = {
   openOnLoad: false,
   linkTarget: "self",
   urlFetchThreadHistory: null,
+  addClearChat: false,
   ...(window as any).buildShipChatWidget?.config,
 };
 
@@ -201,6 +203,10 @@ async function injectPrefetchedThreadMessages() {
   }
 }
 async function handleClearButtonClick(e: Event) {
+  if (!config.addClearChat) {
+    return;
+  }
+
   e.preventDefault();
   const button = e.currentTarget as HTMLButtonElement | null;
   button?.setAttribute("disabled", "");
@@ -311,11 +317,34 @@ async function open(e: Event) {
     "buildship-chat-widget__title"
   )!;
   chatbotHeaderTitle.appendChild(chatbotHeaderTitleText);
-  
-  const clearButton = document.getElementById(
-    WIDGET_CLEAR_BUTTON_ID
-  ) as HTMLButtonElement | null;
-  clearButton?.addEventListener("click", handleClearButtonClick);
+
+  const chatbotHeader = document.getElementById(
+    "buildship-chat-widget__header"
+  );
+
+  if (config.addClearChat && chatbotHeader) {
+    let clearButton = document.getElementById(
+      WIDGET_CLEAR_BUTTON_ID
+    ) as HTMLButtonElement | null;
+
+    if (!clearButton) {
+      clearButton = document.createElement("button");
+      clearButton.id = WIDGET_CLEAR_BUTTON_ID;
+      clearButton.type = "button";
+      clearButton.textContent = "Clear";
+      clearButton.setAttribute("aria-label", "Clear conversation");
+    } else {
+      clearButton.removeEventListener("click", handleClearButtonClick);
+    }
+
+    if (clearButton && !clearButton.parentElement) {
+      chatbotHeader.appendChild(clearButton);
+    }
+
+    clearButton?.addEventListener("click", handleClearButtonClick);
+  } else {
+    document.getElementById(WIDGET_CLEAR_BUTTON_ID)?.remove();
+  }
 
   const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
   chatbotBody.prepend(messagesHistory);
