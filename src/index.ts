@@ -239,12 +239,11 @@ async function handleClearButtonClick(e: Event) {
 async function init() {
   const styleElement = document.createElement("style");
   styleElement.innerHTML = css;
-console.log(config);
   document.head.insertBefore(styleElement, document.head.firstChild);
 
   // Slight delay to allow DOMContent to be fully loaded
   // (particularly for the button to be available in the `if (config.openOnLoad)` block below).
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 10));
 
   document
     .querySelector("[data-buildship-chat-widget-button]")
@@ -346,25 +345,16 @@ async function open(e: Event) {
     document.getElementById(WIDGET_CLEAR_BUTTON_ID)?.remove();
   }
 
-  const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
-  chatbotBody.prepend(messagesHistory);
-
-  if (config.greetingMessage && messagesHistory.children.length === 0) {
-    createNewMessageEntry(config.greetingMessage, Date.now(), "system");
-  }
-
-  // Inject prefetched history before showing optional greeting.
-  await injectPrefetchedThreadMessages();
-
+  // Add widget container in DOM
   const target = (e?.target as HTMLElement) || document.body;
   cleanup = autoUpdate(target, containerElement, () => {
     computePosition(target, containerElement, {
       placement: "top-start",
-      middleware: [flip(), shift({ crossAxis: true, padding: 8 })],
+      middleware: [flip(), shift({ crossAxis: true, padding: 0 })],
       strategy: "fixed",
     }).then(({ x, y }) => {
       Object.assign(containerElement.style, {
-        left: `${x}px`,
+        right: `${x}px`,
         top: `${y}px`,
       });
     });
@@ -372,6 +362,16 @@ async function open(e: Event) {
 
   trap.activate();
 
+  // Add message history to chatbot body
+  const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
+  chatbotBody.prepend(messagesHistory);
+  // Add greating message to message history
+  if (config.greetingMessage && messagesHistory.children.length === 0) {
+    createNewMessageEntry(config.greetingMessage, Date.now(), "system");
+  }
+  // Inject prefetched thread history to message history
+  await injectPrefetchedThreadMessages();
+  
   if (config.closeOnOutsideClick) {
     document
       .getElementById(WIDGET_BACKDROP_ID)!
