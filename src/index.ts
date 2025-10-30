@@ -325,7 +325,7 @@ async function handleClearButtonClick(e: Event) {
 
     const inputElement = document.getElementById(
       "buildship-chat-widget__input"
-    ) as HTMLInputElement | null;
+    ) as HTMLTextAreaElement | null;
     inputElement?.focus();
   } finally {
     button?.removeAttribute("disabled");
@@ -408,6 +408,69 @@ async function open(e: Event) {
   containerElement.innerHTML = widgetHTML;
   containerElement.style.display = "block";
 
+  const formElement = document.getElementById(
+    "buildship-chat-widget__form"
+  ) as HTMLFormElement | null;
+  const inputElement = document.getElementById(
+    "buildship-chat-widget__input"
+  ) as HTMLTextAreaElement | null;
+  const submitButton = document.getElementById(
+    "buildship-chat-widget__submit"
+  ) as HTMLButtonElement | null;
+
+  if (inputElement && formElement) {
+    const maxHeight = 160;
+    const computedStyles = window.getComputedStyle(inputElement);
+    const minHeight =
+      parseFloat(computedStyles.minHeight || "0") || inputElement.clientHeight;
+    const submitForm = () => {
+      if (!formElement.checkValidity()) {
+        formElement.reportValidity?.();
+        return;
+      }
+      if (typeof formElement.requestSubmit === "function") {
+        formElement.requestSubmit(submitButton ?? undefined);
+        return;
+      }
+      if (submitButton) {
+        submitButton.click();
+        return;
+      }
+      const fallbackEvent = new Event("submit", {
+        bubbles: true,
+        cancelable: true,
+      });
+      formElement.dispatchEvent(fallbackEvent);
+    };
+    const adjustInputHeight = () => {
+      inputElement.style.height = "auto";
+      const newHeight = Math.min(
+        Math.max(inputElement.scrollHeight, minHeight),
+        maxHeight
+      );
+      inputElement.style.height = `${newHeight}px`;
+      inputElement.style.overflowY =
+        inputElement.scrollHeight > maxHeight ? "auto" : "hidden";
+    };
+
+    inputElement.addEventListener("input", adjustInputHeight);
+    inputElement.addEventListener("focus", adjustInputHeight);
+    inputElement.addEventListener("keydown", (event) => {
+      if (
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        submitForm();
+      }
+    });
+
+    adjustInputHeight();
+  }
+
   const chatbotHeaderTitleText = document.createElement("span");
   chatbotHeaderTitleText.id = "buildship-chat-widget__title_text";
   chatbotHeaderTitleText.textContent = config.widgetTitle;
@@ -477,9 +540,7 @@ async function open(e: Event) {
       .addEventListener("click", close);
   }
 
-  document
-    .getElementById("buildship-chat-widget__form")!
-    .addEventListener("submit", submit);
+  formElement?.addEventListener("submit", submit);
 }
 
 // Close the widget and clean up
@@ -652,6 +713,13 @@ const handleStreamedResponse = async (res: Response) => {
     await streamResponseToMessageEntry(responseMessage, ts, "system");
   }
 
+  const fallbackResponseMessage = "Sorry, ich konnte deine Anfrage nicht vollständig verarbeiten. Probiere es bitte später erneut.";
+  let finalResponseMessage = responseMessage;
+  if (!finalResponseMessage.trim()) {
+    finalResponseMessage = fallbackResponseMessage;
+    await streamResponseToMessageEntry(finalResponseMessage, ts, "system");
+  }
+
   config.threadId =
     config.threadId ??
     threadIdFromHeader ?? // If the threadId isn't set, use the one from the header
@@ -661,10 +729,10 @@ const handleStreamedResponse = async (res: Response) => {
   if (config.threadId) {
     // Set threadId from config to session cookie
 	  setSessionCookie(config.threadId);  
-    // Add new message to thread history cache
+      // Add new message to thread history cache
     await appendToThreadHistoryRaw(
       {
-        message: responseMessage,
+        message: finalResponseMessage,
         timestamp: ts,
         from: "system",
       },
@@ -712,6 +780,12 @@ async function submit(e: Event) {
     false
   );
   target.reset();
+  const messageField = (target.elements as any)
+    .message as HTMLTextAreaElement | undefined;
+  if (messageField) {
+    messageField.style.height = "";
+    messageField.dispatchEvent(new Event("input"));
+  }
   messagesHistory.prepend(thinkingBubble);
 
   try {

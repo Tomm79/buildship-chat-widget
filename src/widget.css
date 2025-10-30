@@ -294,16 +294,21 @@
   margin-bottom: 0rem;
   width: 100%;
   gap: 0.5rem;
+  align-items: flex-end;
 }
 #buildship-chat-widget__input {
   flex-grow: 1;
-  resize: none;
-  border-radius: 23px; /* Half of the height, to make it pill-shaped */
+  border-radius: 1rem;
   border: 2px solid var(--buildship-chat-widget-border-color);
   background: none;
   font: inherit;
   color: inherit;
-  padding: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  min-height: 3rem;
+  max-height: 8rem;
+  resize: vertical;
+  line-height: 1.4;
+  overflow-y: auto;
 }
 #buildship-chat-widget__input:focus {
   border-color: var(--buildship-chat-widget-primary-color);
