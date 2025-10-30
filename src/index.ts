@@ -50,7 +50,8 @@ export type WidgetConfig = {
   closeOnOutsideClick: boolean;
   openOnLoad: boolean;
   linkTarget: string | null;
-  urlFetchThreadHistory: string | null;
+  urlFetchThreadHistory: string;
+  urlFetchUpdateThreadHistory: string;
   addClearChat: boolean;
 };
 
@@ -74,7 +75,8 @@ const config: WidgetConfig = {
   closeOnOutsideClick: true,
   openOnLoad: false,
   linkTarget: "self",
-  urlFetchThreadHistory: null,
+  urlFetchThreadHistory: "",
+  urlFetchUpdateThreadHistory: "",
   addClearChat: false,
   ...(window as any).buildShipChatWidget?.config,
 };
@@ -91,6 +93,96 @@ type PrefetchedThreadMessage = {
 let prefetchedThreadMessages: PrefetchedThreadMessage[] = [];
 let prefetchedThreadMessagesPromise: Promise<void> | null = null;
 let prefetchedMessagesInjected = false;
+
+// Structure of a raw thread history message.
+type ThreadHistoryRawMessage = {
+  message: string;
+  timestamp: number;
+  from: "system" | "user";
+};
+
+// Structure of the raw thread history as stored/fetched from the server.
+type ThreadHistoryRaw = {
+  value?: {
+    data?: any[];
+  };
+  [key: string]: any;
+};
+
+// In-memory cache of the thread history raw messages.
+let THREAD_HISTORY_RAW: ThreadHistoryRaw = { value: { data: [] } };
+
+// Get the current thread history raw messages, ensuring structure is valid.
+function getThreadHistoryRawMessages(): any[] {
+  if (!THREAD_HISTORY_RAW || typeof THREAD_HISTORY_RAW !== "object") {
+    THREAD_HISTORY_RAW = { value: { data: [] } };
+  }
+  if (!THREAD_HISTORY_RAW.value || typeof THREAD_HISTORY_RAW.value !== "object") {
+    THREAD_HISTORY_RAW.value = { data: [] };
+  }
+  if (!Array.isArray(THREAD_HISTORY_RAW.value.data)) {
+    THREAD_HISTORY_RAW.value.data = [];
+  }
+  if (config.threadId) {
+    THREAD_HISTORY_RAW.threadId = config.threadId;
+  }
+  return THREAD_HISTORY_RAW.value!.data!;
+}
+
+// Convert a ThreadHistoryRawMessage to the format expected by the server.
+function convertToThreadHistoryRawEntry({
+  message,
+  timestamp,
+  from,
+}: ThreadHistoryRawMessage) {
+  return {
+    id: `local-${timestamp}-${from}`,
+    object: "thread.message",
+    created_at: Math.floor(timestamp / 1000),
+    role: from === "user" ? "user" : "assistant",
+    content: [
+      {
+        type: "text",
+        text: {
+          value: message,
+        },
+      },
+    ],
+  };
+}
+
+// Send updated thread history to server.used when new messages are added.
+async function appendToThreadHistoryRaw(
+  entry: ThreadHistoryRawMessage,
+  syncWithServer = false
+) {
+  const messages = getThreadHistoryRawMessages();
+  messages.unshift(convertToThreadHistoryRawEntry(entry));
+  if (config.threadId) {
+    THREAD_HISTORY_RAW.threadId = config.threadId;
+  }
+
+  if (!syncWithServer) {
+    return;
+  }
+ 
+  try {
+    await fetch(config.urlFetchUpdateThreadHistory, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(THREAD_HISTORY_RAW),
+    });
+
+  } catch (error) {
+    console.error(
+      "BuildShip Chat Widget: Failed to sync thread history",
+      error
+    );
+  }
+    
+}
 
 // Map API roles to widget message variants.
 function mapChatRole(role: unknown): "system" | "user" {
@@ -129,6 +221,7 @@ async function fetchThreadMessages(url: string, threadId: string) {
     }
 
     const payload = await response.json();
+    THREAD_HISTORY_RAW = payload;
     const rawMessages: any[] = Array.isArray(payload?.value?.data)
       ? payload.value.data
       : [];
@@ -136,7 +229,7 @@ async function fetchThreadMessages(url: string, threadId: string) {
     if (threadId !== config.threadId) {
       return;
     }
-
+    // Parse and store prefetched messages.
     prefetchedThreadMessages = rawMessages
       .map((item) => {
         if (!item || typeof item !== "object") {
@@ -202,6 +295,8 @@ async function injectPrefetchedThreadMessages() {
     await createNewMessageEntry(message.message, message.timestamp, message.from);
   }
 }
+
+// Handle Clear button click
 async function handleClearButtonClick(e: Event) {
   if (!config.addClearChat) {
     return;
@@ -236,6 +331,8 @@ async function handleClearButtonClick(e: Event) {
     button?.removeAttribute("disabled");
   }
 }
+
+// Initialize the widget on window load
 async function init() {
   const styleElement = document.createElement("style");
   styleElement.innerHTML = css;
@@ -276,6 +373,8 @@ async function init() {
     await open({ target } as Event);
   }
 }
+
+// Start initialization on window load
 window.addEventListener("load", init);
 
 const containerElement = document.createElement("div");
@@ -383,6 +482,7 @@ async function open(e: Event) {
     .addEventListener("submit", submit);
 }
 
+// Close the widget and clean up
 function close() {
   trap.deactivate();
 
@@ -394,6 +494,7 @@ function close() {
   cleanup = () => {};
 }
 
+// Create a new message entry in the chat history
 async function createNewMessageEntry(
   message: string,
   timestamp: number,
@@ -417,8 +518,10 @@ async function createNewMessageEntry(
   messageElement.appendChild(messageTimestamp);
 
   messagesHistory.prepend(messageElement);
+
 }
 
+// Handle standard (non-streamed) response
 const handleStandardResponse = async (res: Response) => {
   if (res.ok) {
     const {
@@ -463,9 +566,18 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
     await createNewMessageEntry(responseMessage, Date.now(), "system");
     config.threadId = config.threadId ?? responseThreadId ?? null;
 	
-	// Set threadId from config to session cookie
     if (config.threadId) {
-	    setSessionCookie(config.threadId);  
+      // Set threadId from config to session cookie
+	    setSessionCookie(config.threadId); 
+      // Add new message to thread history cache
+      await appendToThreadHistoryRaw(
+        {
+          message: responseMessage,
+          timestamp: Date.now(),
+          from: "system",
+        },
+        true
+      ); 
     }
 	
   } else {
@@ -475,6 +587,7 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
   }
 };
 
+// Stream response to existing or new message entry
 async function streamResponseToMessageEntry(
   message: string,
   timestamp: number,
@@ -494,6 +607,7 @@ async function streamResponseToMessageEntry(
   }
 }
 
+// Handle streamed response
 const handleStreamedResponse = async (res: Response) => {
   if (!res.body) {
     console.error("BuildShip Chat Widget: Streamed response has no body", res);
@@ -543,12 +657,23 @@ const handleStreamedResponse = async (res: Response) => {
     threadIdFromHeader ?? // If the threadId isn't set, use the one from the header
     (responseThreadId !== "" ? responseThreadId : null); // If the threadId isn't set and one isn't included in the header, use the one from the response
 	
-  // Set threadId from config to session cookie
+  
   if (config.threadId) {
+    // Set threadId from config to session cookie
 	  setSessionCookie(config.threadId);  
+    // Add new message to thread history cache
+    await appendToThreadHistoryRaw(
+      {
+        message: responseMessage,
+        timestamp: ts,
+        from: "system",
+      },
+      true
+    );
   }
 };
 
+// Handle form submission
 async function submit(e: Event) {
   e.preventDefault();
   const target = e.target as HTMLFormElement;
@@ -576,6 +701,16 @@ async function submit(e: Event) {
   };
 
   await createNewMessageEntry(data.message, data.timestamp, "user");
+  
+  // Add new message to thread history cache (don't update server)
+  await appendToThreadHistoryRaw(
+    {
+      message: data.message,
+      timestamp: data.timestamp,
+      from: "user",
+    },
+    false
+  );
   target.reset();
   messagesHistory.prepend(thinkingBubble);
 
