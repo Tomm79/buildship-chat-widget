@@ -17,6 +17,7 @@ const WIDGET_LAUNCHER_BADGE_CLASS = "buildship-chat-widget__launcher-badge";
 const DOCUMENT_OPEN_CLASS = "buildship-chat-widget--open";
 const DOCUMENT_LAUNCHER_VISIBLE_CLASS =
   "buildship-chat-widget--launcher-visible";
+const HIDE_TARGET_DATA_ATTRIBUTE = "data-buildship-chat-widget-hidden";
 const STORAGE_KEYS = {
   pinnedOpen: "buildship-chat-widget:pinned-open",
   launcherForced: "buildship-chat-widget:launcher-forced",
@@ -65,6 +66,16 @@ type LauncherConfig = {
   rememberVisibility?: boolean;
 };
 
+type HideTargetsConfig = {
+  ids?: string[];
+  classes?: string[];
+};
+
+type NormalizedHideTargets = {
+  ids: string[];
+  classes: string[];
+};
+
 export type WidgetConfig = {
   url: string;
   threadId: string | null;
@@ -82,6 +93,7 @@ export type WidgetConfig = {
   launcher?: LauncherConfig;
   persistOpenState?: boolean;
   collapseTabLabel?: string;
+  hideTargets?: HideTargetsConfig;
 };
 
 const renderer = new marked.Renderer();
@@ -110,6 +122,7 @@ const config: WidgetConfig = {
   launcher: undefined,
   persistOpenState: false,
   collapseTabLabel: "Chat ausblenden",
+  hideTargets: undefined,
   ...(window as any).buildShipChatWidget?.config,
 };
 
@@ -167,6 +180,16 @@ function isPersistOpenStateEnabled() {
   return Boolean(config.persistOpenState);
 }
 
+function getNormalizedHideTargets(): NormalizedHideTargets {
+  const hideTargets = config.hideTargets ?? {};
+  return {
+    ids: (hideTargets.ids ?? []).map((id) => id.trim()).filter(Boolean),
+    classes: (hideTargets.classes ?? [])
+      .map((className) => className.trim())
+      .filter(Boolean),
+  };
+}
+
 // Basic storage helpers handle private mode/SSR failures gracefully.
 function getStorageItem(key: string) {
   try {
@@ -202,6 +225,62 @@ function setBooleanInStorage(key: string, value: boolean) {
   } else {
     removeStorageItem(key);
   }
+}
+
+const hiddenElements = new Set<HTMLElement>();
+
+function collectHideTargetElements(): HTMLElement[] {
+  const { ids, classes } = getNormalizedHideTargets();
+  if (!ids.length && !classes.length) {
+    return [];
+  }
+  const elements = new Set<HTMLElement>();
+  ids.forEach((id) => {
+    const element = document.getElementById(id);
+    if (element instanceof HTMLElement) {
+      elements.add(element);
+    }
+  });
+  classes.forEach((className) => {
+    const nodeList = document.querySelectorAll<HTMLElement>(`.${className}`);
+    nodeList.forEach((element) => elements.add(element));
+  });
+  return Array.from(elements);
+}
+
+function hideElement(element: HTMLElement) {
+  if (!hiddenElements.has(element)) {
+    element.setAttribute(
+      HIDE_TARGET_DATA_ATTRIBUTE,
+      element.style.display || ""
+    );
+    hiddenElements.add(element);
+  }
+  element.style.display = "none";
+}
+
+function restoreHiddenElements() {
+  hiddenElements.forEach((element) => {
+    const previousDisplay =
+      element.getAttribute(HIDE_TARGET_DATA_ATTRIBUTE) ?? "";
+    element.style.display = previousDisplay;
+    element.removeAttribute(HIDE_TARGET_DATA_ATTRIBUTE);
+  });
+  hiddenElements.clear();
+}
+
+function toggleHideTargets(shouldHide: boolean) {
+  if (shouldHide) {
+    const elements = collectHideTargetElements();
+    elements.forEach((element) => hideElement(element));
+  } else if (hiddenElements.size) {
+    restoreHiddenElements();
+  }
+}
+
+function updateHideTargetsVisibility() {
+  const shouldHide = isWidgetOpen || isLauncherCurrentlyVisible;
+  toggleHideTargets(shouldHide);
 }
 
 let pinnedOpenPreference = false;
@@ -251,6 +330,7 @@ let hasActiveChat = initialActiveChatState;
 
 let isWidgetOpen = false;
 let launcherElement: HTMLButtonElement | null = null;
+let isLauncherCurrentlyVisible = false;
 
 function normalizePath(path: string) {
   if (!path) {
@@ -312,6 +392,8 @@ function shouldDisplayLauncher() {
 
 function updateLauncherVisibility() {
   if (!launcherElement) {
+    isLauncherCurrentlyVisible = false;
+    updateHideTargetsVisibility();
     return;
   }
   // Hide the launcher while the chat drawer is visible to avoid duplicate affordances.
@@ -321,6 +403,8 @@ function updateLauncherVisibility() {
     DOCUMENT_LAUNCHER_VISIBLE_CLASS,
     shouldBeVisible
   );
+  isLauncherCurrentlyVisible = shouldBeVisible;
+  updateHideTargetsVisibility();
 }
 
 function applyLauncherPlacementStyles() {

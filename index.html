@@ -59,6 +59,10 @@
           right: "40px",
         },
       };
+      window.buildShipChatWidget.config.hideTargets = {
+        ids: ["header-phone"],
+        classes: ["hide-when-chat"],
+      };
     }); 
   </script>
 </head>
@@ -73,6 +77,9 @@
         <div class="logo">
           <a href="/">Header ...</a>
         </div>
+        <div class="header-phone hide-when-chat" id="header-phone">
+          <a href="tel:+4900000000">Jetzt anrufen</a>
+        </div>
       </div>
     </header>
 
@@ -82,6 +89,7 @@
         <div class="hero-content">
           <h1>Headline</h1>
           <p>Text, text, text, ...</p>
+          <a class="btn-primary hide-when-chat" href="#kontaktformular">Termin sichern</a>
         </div>
       </section>
     </main>
