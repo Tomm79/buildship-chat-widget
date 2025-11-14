@@ -11,6 +11,17 @@ const WIDGET_MESSAGES_HISTORY_CONTAINER_ID =
   "buildship-chat-widget__messages_history";
 const WIDGET_THINKING_BUBBLE_ID = "buildship-chat-widget__thinking_bubble";
 const WIDGET_CLEAR_BUTTON_ID = "buildship-chat-widget__clear";
+const WIDGET_COLLAPSE_TAB_ID = "buildship-chat-widget__collapse-tab";
+const WIDGET_LAUNCHER_ID = "buildship-chat-widget__launcher";
+const WIDGET_LAUNCHER_BADGE_CLASS = "buildship-chat-widget__launcher-badge";
+const DOCUMENT_OPEN_CLASS = "buildship-chat-widget--open";
+const DOCUMENT_LAUNCHER_VISIBLE_CLASS =
+  "buildship-chat-widget--launcher-visible";
+const STORAGE_KEYS = {
+  pinnedOpen: "buildship-chat-widget:pinned-open",
+  launcherForced: "buildship-chat-widget:launcher-forced",
+  activeChat: "buildship-chat-widget:active-chat",
+};
 
 
 // Functions to handle thread id as session cookie
@@ -39,6 +50,21 @@ function clearSessionCookie() {
 
 // end session cookie
 
+// Allow launcher offsets per side so users can fine tune button placement.
+type LauncherPlacement = Partial<
+  Record<"top" | "right" | "bottom" | "left", string>
+>;
+
+// Public config shape for the floating launcher button/icon.
+type LauncherConfig = {
+  enabled?: boolean;
+  restrictToPaths?: string[];
+  placement?: LauncherPlacement;
+  ariaLabel?: string;
+  text?: string;
+  rememberVisibility?: boolean;
+};
+
 export type WidgetConfig = {
   url: string;
   threadId: string | null;
@@ -53,6 +79,9 @@ export type WidgetConfig = {
   urlFetchThreadHistory: string;
   urlFetchUpdateThreadHistory: string;
   addClearChat: boolean;
+  launcher?: LauncherConfig;
+  persistOpenState?: boolean;
+  collapseTabLabel?: string;
 };
 
 const renderer = new marked.Renderer();
@@ -78,8 +107,335 @@ const config: WidgetConfig = {
   urlFetchThreadHistory: "",
   urlFetchUpdateThreadHistory: "",
   addClearChat: false,
+  launcher: undefined,
+  persistOpenState: false,
+  collapseTabLabel: "Chat ausblenden",
   ...(window as any).buildShipChatWidget?.config,
 };
+
+const DEFAULT_LAUNCHER_PLACEMENT: Required<
+  Pick<LauncherPlacement, "bottom" | "right">
+> = {
+  bottom: "2rem",
+  right: "2rem",
+};
+const DEFAULT_LAUNCHER_TEXT = "Chat";
+const DEFAULT_LAUNCHER_ARIA_LABEL = "Chat starten";
+const DEFAULT_COLLAPSE_TAB_LABEL = "Chat ausblenden";
+
+// Internally we always resolve config to this explicit structure.
+type NormalizedLauncherConfig = {
+  enabled: boolean;
+  restrictToPaths: string[];
+  placement: LauncherPlacement;
+  ariaLabel: string;
+  text: string;
+  rememberVisibility: boolean;
+};
+
+// Resolve launcher settings from the latest user config (which may be assigned
+// after our bundle is evaluated).
+function getNormalizedLauncherConfig(): NormalizedLauncherConfig {
+  const launcher = config.launcher ?? {};
+  const placement = launcher.placement ?? {};
+  return {
+    enabled: launcher.enabled ?? false,
+    restrictToPaths: launcher.restrictToPaths ?? [],
+    placement: {
+      top: placement.top ?? "",
+      right: placement.right ?? DEFAULT_LAUNCHER_PLACEMENT.right,
+      bottom: placement.bottom ?? DEFAULT_LAUNCHER_PLACEMENT.bottom,
+      left: placement.left ?? "",
+    },
+    ariaLabel: launcher.ariaLabel ?? DEFAULT_LAUNCHER_ARIA_LABEL,
+    text: launcher.text ?? DEFAULT_LAUNCHER_TEXT,
+    rememberVisibility: launcher.rememberVisibility ?? true,
+  };
+}
+
+function getLauncherRestrictToPaths() {
+  return getNormalizedLauncherConfig()
+    .restrictToPaths.map((path) => path.trim())
+    .filter(Boolean);
+}
+
+function getCollapseTabLabel() {
+  return config.collapseTabLabel ?? DEFAULT_COLLAPSE_TAB_LABEL;
+}
+
+function isPersistOpenStateEnabled() {
+  return Boolean(config.persistOpenState);
+}
+
+// Basic storage helpers handle private mode/SSR failures gracefully.
+function getStorageItem(key: string) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function setStorageItem(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+function removeStorageItem(key: string) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+function readBooleanFromStorage(key: string) {
+  return getStorageItem(key) === "true";
+}
+
+function setBooleanInStorage(key: string, value: boolean) {
+  if (value) {
+    setStorageItem(key, "true");
+  } else {
+    removeStorageItem(key);
+  }
+}
+
+let pinnedOpenPreference = false;
+let pinnedOpenPreferenceInitialized = false;
+// Determines if the widget should reopen automatically on navigation reloads.
+function getPinnedOpenPreference() {
+  if (
+    !pinnedOpenPreferenceInitialized &&
+    isPersistOpenStateEnabled()
+  ) {
+    pinnedOpenPreference = readBooleanFromStorage(STORAGE_KEYS.pinnedOpen);
+    pinnedOpenPreferenceInitialized = true;
+  }
+  return pinnedOpenPreference;
+}
+function setPinnedOpenState(value: boolean) {
+  pinnedOpenPreference = value;
+  if (!isPersistOpenStateEnabled()) {
+    return;
+  }
+  pinnedOpenPreferenceInitialized = true;
+  setBooleanInStorage(STORAGE_KEYS.pinnedOpen, value);
+}
+
+let launcherVisibilityForced =
+  (getNormalizedLauncherConfig().rememberVisibility &&
+    readBooleanFromStorage(STORAGE_KEYS.launcherForced)) ||
+  false;
+
+function forceLauncherVisibility() {
+  if (
+    !getNormalizedLauncherConfig().rememberVisibility ||
+    launcherVisibilityForced
+  ) {
+    return;
+  }
+  launcherVisibilityForced = true;
+  setBooleanInStorage(STORAGE_KEYS.launcherForced, true);
+}
+
+const initialActiveChatState =
+  readBooleanFromStorage(STORAGE_KEYS.activeChat) || Boolean(config.threadId);
+if (initialActiveChatState) {
+  setBooleanInStorage(STORAGE_KEYS.activeChat, true);
+}
+let hasActiveChat = initialActiveChatState;
+
+let isWidgetOpen = false;
+let launcherElement: HTMLButtonElement | null = null;
+
+function normalizePath(path: string) {
+  if (!path) {
+    return "/";
+  }
+  let candidate = path;
+  if (candidate.includes("://")) {
+    try {
+      candidate = new URL(candidate).pathname;
+    } catch {
+      // ignore invalid URLs
+    }
+  }
+  if (!candidate.startsWith("/")) {
+    candidate = `/${candidate}`;
+  }
+  candidate = candidate.replace(/\/+$/, "");
+  if (candidate === "") {
+    candidate = "/";
+  }
+  return candidate;
+}
+
+function pathMatchesRule(rule: string) {
+  const trimmedRule = rule.trim();
+  if (!trimmedRule) {
+    return false;
+  }
+  // Support "*" for all pages and prefix matching via "/foo/*" rules.
+  if (trimmedRule === "*") {
+    return true;
+  }
+  const hasWildcard = trimmedRule.endsWith("*");
+  const ruleWithoutWildcard = hasWildcard
+    ? trimmedRule.slice(0, -1)
+    : trimmedRule;
+  const normalizedRule = normalizePath(ruleWithoutWildcard);
+  const currentPath = normalizePath(window.location?.pathname || "/");
+  if (hasWildcard) {
+    return currentPath.startsWith(normalizedRule);
+  }
+  return currentPath === normalizedRule;
+}
+
+function shouldDisplayLauncher() {
+  const normalized = getNormalizedLauncherConfig();
+  if (!normalized.enabled) {
+    return false;
+  }
+  if (launcherVisibilityForced) {
+    return true;
+  }
+  const restrictToPaths = getLauncherRestrictToPaths();
+  if (!restrictToPaths.length) {
+    return true;
+  }
+  return restrictToPaths.some((rule) => pathMatchesRule(rule));
+}
+
+function updateLauncherVisibility() {
+  if (!launcherElement) {
+    return;
+  }
+  // Hide the launcher while the chat drawer is visible to avoid duplicate affordances.
+  const shouldBeVisible = shouldDisplayLauncher() && !isWidgetOpen;
+  launcherElement.style.display = shouldBeVisible ? "" : "none";
+  document.documentElement.classList.toggle(
+    DOCUMENT_LAUNCHER_VISIBLE_CLASS,
+    shouldBeVisible
+  );
+}
+
+function applyLauncherPlacementStyles() {
+  if (!launcherElement) {
+    return;
+  }
+  const normalized = getNormalizedLauncherConfig();
+  (["top", "right", "bottom", "left"] as const).forEach((property) => {
+    const value = normalized.placement[property];
+    if (value) {
+      launcherElement!.style.setProperty(property, value);
+    } else {
+      launcherElement!.style.removeProperty(property);
+    }
+  });
+}
+
+function applyActiveStateToLauncher() {
+  if (!launcherElement) {
+    return;
+  }
+  // Toggle the badge whenever a conversation exists so the indicator persists.
+  launcherElement.classList.toggle(
+    "buildship-chat-widget__launcher--active",
+    hasActiveChat
+  );
+}
+
+function markChatAsActive() {
+  hasActiveChat = true;
+  setBooleanInStorage(STORAGE_KEYS.activeChat, true);
+  applyActiveStateToLauncher();
+}
+
+function resetActiveChatIndicator() {
+  hasActiveChat = false;
+  setBooleanInStorage(STORAGE_KEYS.activeChat, false);
+  applyActiveStateToLauncher();
+}
+
+function initializeLauncher() {
+  const normalized = getNormalizedLauncherConfig();
+  if (!normalized.enabled) {
+    return;
+  }
+  if (launcherElement) {
+    applyLauncherPlacementStyles();
+    applyActiveStateToLauncher();
+    updateLauncherVisibility();
+    return;
+  }
+
+  launcherElement = document.createElement("button");
+  launcherElement.id = WIDGET_LAUNCHER_ID;
+  launcherElement.type = "button";
+  launcherElement.setAttribute(
+    "aria-label",
+    normalized.ariaLabel
+  );
+  launcherElement.className = "buildship-chat-widget__launcher";
+
+  const iconWrapper = document.createElement("span");
+  iconWrapper.className = "buildship-chat-widget__launcher-icon";
+  iconWrapper.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 19" aria-hidden="true">
+        <path d="M9 6C9.55229 6 10 6.44772 10 7V9C10 9.55228 9.55229 10 9 10C8.44771 10 8 9.55228 8 9V7C8 6.44772 8.44771 6 9 6Z" />
+        <path d="M16 7C16 6.44772 15.5523 6 15 6C14.4477 6 14 6.44772 14 7V9C14 9.55228 14.4477 10 15 10C15.5523 10 16 9.55228 16 9V7Z" />
+        <path d="M19.2099 16C19.0086 16 18.815 16.0768 18.6684 16.2147L16.4858 18.269C15.2525 19.4298 13.2248 18.6278 13.1191 16.9374C13.0862 16.4105 12.6493 16 12.1213 16H5C3.34315 16 2 14.6569 2 13V9C2 9.55228 1.55228 10 1 10C0.447715 10 0 9.55228 0 9V6C0 5.44772 0.447715 5 1 5C1.55228 5 2 5.44772 2 6V3C2 1.34315 3.34315 0 5 0H19C20.6569 0 22 1.34315 22 3V6C22 5.44772 22.4477 5 23 5C23.5523 5 24 5.44772 24 6V9C24 9.55228 23.5523 10 23 10C22.4477 10 22 9.55228 22 9V13.2099C22 14.7508 20.7508 16 19.2099 16ZM5 2C4.44772 2 4 2.44772 4 3V13C4 13.5523 4.44772 14 5 14H12.1213C13.7053 14 15.0163 15.2315 15.1152 16.8124L17.2977 14.7583C17.8152 14.2712 18.4992 14 19.2099 14C19.6463 14 20 13.6463 20 13.2099V3C20 2.44772 19.5523 2 19 2H5Z" />
+      </svg>
+    `;
+
+  const labelElement = document.createElement("span");
+  labelElement.className = "buildship-chat-widget__launcher-text";
+  labelElement.textContent = normalized.text;
+
+  const badgeElement = document.createElement("span");
+  badgeElement.className = WIDGET_LAUNCHER_BADGE_CLASS;
+  launcherElement.append(iconWrapper, labelElement, badgeElement);
+
+  launcherElement.addEventListener("click", handleLauncherClick);
+  document.body.appendChild(launcherElement);
+
+  applyLauncherPlacementStyles();
+  applyActiveStateToLauncher();
+  updateLauncherVisibility();
+}
+
+function handleLauncherClick(e: Event) {
+  e.preventDefault();
+  if (isPersistOpenStateEnabled()) {
+    setPinnedOpenState(true);
+  }
+  open({ target: document.body } as unknown as Event);
+}
+
+function handleCollapseTabClick(e: Event) {
+  e.preventDefault();
+  if (isPersistOpenStateEnabled()) {
+    setPinnedOpenState(false);
+  }
+  close();
+}
+
+function handleWidgetOpened() {
+  isWidgetOpen = true;
+  document.documentElement.classList.add(DOCUMENT_OPEN_CLASS);
+  forceLauncherVisibility();
+  updateLauncherVisibility();
+}
+
+function handleWidgetClosed() {
+  isWidgetOpen = false;
+  document.documentElement.classList.remove(DOCUMENT_OPEN_CLASS);
+  updateLauncherVisibility();
+}
 
 let cleanup = () => {};
 
@@ -322,6 +678,7 @@ async function handleClearButtonClick(e: Event) {
     if (config.greetingMessage) {
       await createNewMessageEntry(config.greetingMessage, Date.now(), "system");
     }
+    resetActiveChatIndicator();
 
     const inputElement = document.getElementById(
       "buildship-chat-widget__input"
@@ -346,6 +703,8 @@ async function init() {
     .querySelector("[data-buildship-chat-widget-button]")
     ?.addEventListener("click", open);
 
+  initializeLauncher();
+
   if (
     config.threadId &&
     config.urlFetchThreadHistory &&
@@ -358,7 +717,11 @@ async function init() {
     );
   }
 
-  if (config.openOnLoad) {
+  const shouldPersistOpen = isPersistOpenStateEnabled();
+  if (
+    config.openOnLoad ||
+    (shouldPersistOpen && getPinnedOpenPreference())
+  ) {
     if (prefetchedThreadMessagesPromise) {
       try {
         await prefetchedThreadMessagesPromise;
@@ -400,6 +763,10 @@ const trap = createFocusTrap(containerElement, {
 });
 
 async function open(e: Event) {
+  if (isWidgetOpen) {
+    return;
+  }
+
   if (config.closeOnOutsideClick) {
     document.body.appendChild(optionalBackdrop);
   }
@@ -407,6 +774,7 @@ async function open(e: Event) {
   document.body.appendChild(containerElement);
   containerElement.innerHTML = widgetHTML;
   containerElement.style.display = "block";
+  handleWidgetOpened();
 
   const formElement = document.getElementById(
     "buildship-chat-widget__form"
@@ -469,6 +837,21 @@ async function open(e: Event) {
     });
 
     adjustInputHeight();
+  }
+
+  const collapseTab = document.getElementById(
+    WIDGET_COLLAPSE_TAB_ID
+  ) as HTMLButtonElement | null;
+  if (collapseTab) {
+    const collapseLabel = getCollapseTabLabel();
+    collapseTab.setAttribute("aria-label", collapseLabel);
+    const collapseTabLabelElement = collapseTab.querySelector("span");
+    if (collapseTabLabelElement) {
+      collapseTabLabelElement.textContent = collapseLabel;
+    } else {
+      collapseTab.textContent = collapseLabel;
+    }
+    collapseTab.addEventListener("click", handleCollapseTabClick);
   }
 
   const chatbotHeaderTitleText = document.createElement("span");
@@ -553,6 +936,7 @@ function close() {
   optionalBackdrop.remove();
   cleanup();
   cleanup = () => {};
+  handleWidgetClosed();
 }
 
 // Create a new message entry in the chat history
@@ -628,6 +1012,7 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
     config.threadId = config.threadId ?? responseThreadId ?? null;
 	
     if (config.threadId) {
+      markChatAsActive();
       // Set threadId from config to session cookie
 	    setSessionCookie(config.threadId); 
       // Add new message to thread history cache
@@ -727,6 +1112,7 @@ const handleStreamedResponse = async (res: Response) => {
 	
   
   if (config.threadId) {
+    markChatAsActive();
     // Set threadId from config to session cookie
 	  setSessionCookie(config.threadId);  
       // Add new message to thread history cache
@@ -769,6 +1155,7 @@ async function submit(e: Event) {
   };
 
   await createNewMessageEntry(data.message, data.timestamp, "user");
+  markChatAsActive();
   
   // Add new message to thread history cache (don't update server)
   await appendToThreadHistoryRaw(

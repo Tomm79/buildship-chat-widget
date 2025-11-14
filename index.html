@@ -5,27 +5,93 @@
     href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap"
     rel="stylesheet"
   />
+
+  <style>
+  /* Start styles to define for page-container */
+    .page-container {
+      margin-right: 0;
+      transition: margin-right 0.3s ease;
+    }
+
+    .buildship-chat-widget--open .page-container {
+      margin-right: 400px;
+    }
+  /* End */
+
+    #buildship-chat-widget__container {
+        width: 400px;
+        height: 100%;
+        font-size: 0.9em;
+    }
+    body, html {
+        font-family: 'Roboto', sans-serif;
+        line-height: 1.6;
+        font-size: 18px;
+        font-weight: 400;
+    }
+  </style>
+
+  <script src="./dist/index.umd.js" defer></script>
+  <script>
+    window.addEventListener('load', function() {
+// Standard widget settings      
+      window.buildShipChatWidget.config.widgetTitle = "Chatbot";
+      window.buildShipChatWidget.config.greetingMessage =
+      "Hello there! Here's a super long greeting.\n\nJust to see how you'd handle multiple lines and linebreaks.";
+      window.buildShipChatWidget.config.url = "";
+//    window.buildShipChatWidget.config.threadId = ;
+      window.buildShipChatWidget.config.urlFetchThreadHistory = "";
+      window.buildShipChatWidget.config.urlFetchUpdateThreadHistory = "";
+      window.buildShipChatWidget.config.openOnLoad = true;
+      window.buildShipChatWidget.config.closeOnOutsideClick = true;	
+	    window.buildShipChatWidget.config.linkTarget = "self";
+      window.buildShipChatWidget.config.addClearChat = true ;
+// Settings for launcher button
+      window.buildShipChatWidget.config.persistOpenState = true;
+      window.buildShipChatWidget.config.collapseTabLabel = "Hide chatbot";
+      window.buildShipChatWidget.config.launcher = {
+        enabled: true,
+        text: "Chatbot",
+        ariaLabel: "Open chatbot",
+        restrictToPaths: [],
+        placement: {
+          bottom: "40px",
+          right: "40px",
+        },
+      };
+    }); 
+  </script>
 </head>
 
-<script src="./dist/index.umd.js" defer></script>
+<body>
+<!-- Add the class "page-container" to the highest container in body and the styles above -->  
+  <div class="page-container">
 
-<!-- Edit config below to customize the widget -->
-<script>
-  window.addEventListener("load", () => {
-    window.buildShipChatWidget.config.widgetTitle = "Chatbot";
-    window.buildShipChatWidget.config.greetingMessage =
-      "Hello there! Here's a super long greeting.\n\nJust to see how you'd handle multiple lines and linebreaks.";
-    window.buildShipChatWidget.config.url = "";
-//    window.buildShipChatWidget.config.threadId = ;
-    window.buildShipChatWidget.config.urlFetchThreadHistory = "";
-    window.buildShipChatWidget.config.urlFetchUpdateThreadHistory = "";
-    window.buildShipChatWidget.config.openOnLoad = true;
-    window.buildShipChatWidget.config.closeOnOutsideClick = true;	
-	window.buildShipChatWidget.config.linkTarget = "self";	
-    window.buildShipChatWidget.config.addClearChat = true ;
-  });
-</script>
+    <!-- Header / Navigation --> 
+    <header>
+      <div class="header-inner">
+        <div class="logo">
+          <a href="/">Header ...</a>
+        </div>
+      </div>
+    </header>
 
-<body data-theme="light" style="font-family: 'Roboto'">
-  <button data-buildship-chat-widget-button style="position: absolute; right: 0; bottom: 0;">Button</button>
+    <!-- Content -->
+    <main id="main-content">
+      <section class="section-hero">
+        <div class="hero-content">
+          <h1>Headline</h1>
+          <p>Text, text, text, ...</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+      <div class="footer-container">
+        <p>Footer text ...</p>
+      </div>
+    </footer>
+
+  </div>
 </body>

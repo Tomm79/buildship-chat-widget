@@ -85,6 +85,7 @@
   font-family: inherit;
   font-size: 1rem;
   color: var(--buildship-chat-widget-primary-color-text);
+  overflow: visible;
 }
 #buildship-chat-widget__container * {
   box-sizing: border-box;
@@ -113,6 +114,33 @@
   align-items: center;
   border-bottom: 2px solid var(--buildship-chat-widget-border-color);
 }
+
+/* Slide-out tab that collapses the widget without removing it from DOM */
+#buildship-chat-widget__collapse-tab {
+  position: absolute;
+  left: -19px;
+  top: 30%;
+  transform: translateY(-50%) rotate(-90deg);
+  transform-origin: left center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: none;
+  padding: 0.35rem 1.25rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: var(--buildship-chat-widget-button-weight);
+  background-color: var(--buildship-chat-widget-primary-color);
+  color: var(--buildship-chat-widget-primary-color-text);
+  border-radius: 0.75rem 0.75rem 0 0;
+  cursor: pointer;
+  box-shadow: var(--buildship-chat-widget-shadow);
+}
+#buildship-chat-widget__collapse-tab span {
+  display: block;
+}
+
 #buildship-chat-widget__title {
   display: flex;
   align-items: center;
@@ -346,4 +374,49 @@
   background-color: var(--buildship-chat-widget-border-color);
   opacity: 0.5;
   cursor: default;
+}
+
+/* Floating launcher button that injects the chat when clicked */
+#buildship-chat-widget__launcher {
+  position: fixed;
+  z-index: 9998;
+  bottom: 2rem;
+  right: 2rem;
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--buildship-chat-widget-button-weight);
+  background-color: var(--buildship-chat-widget-primary-color);
+  color: var(--buildship-chat-widget-primary-color-text);
+  box-shadow: var(--buildship-chat-widget-shadow);
+  transition: transform 0.2s ease;
+}
+#buildship-chat-widget__launcher:hover {
+  transform: scale(1.02);
+}
+#buildship-chat-widget__launcher:active {
+  transform: scale(0.96);
+}
+.buildship-chat-widget__launcher-icon svg {
+  display: block;
+  fill: currentColor;
+}
+.buildship-chat-widget__launcher-text {
+  line-height: 1;
+}
+.buildship-chat-widget__launcher-badge {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #d93025;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.buildship-chat-widget__launcher--active .buildship-chat-widget__launcher-badge {
+  opacity: 1;
 }
