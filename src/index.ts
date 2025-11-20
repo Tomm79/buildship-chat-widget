@@ -108,12 +108,12 @@ const config: WidgetConfig = {
   url: "",
 //  threadId: null,
   threadId: getCookieValue(THREAD_ID_COOKIE_NAME),
-  responseIsAStream: false,
+  responseIsAStream: true,
   user: {},
   widgetTitle: "Chatbot",
   greetingMessage: null,
   disableErrorAlert: false,
-  closeOnOutsideClick: true,
+  closeOnOutsideClick: false,
   openOnLoad: false,
   linkTarget: "self",
   urlFetchThreadHistory: "",
@@ -747,7 +747,8 @@ async function handleClearButtonClick(e: Event) {
   button?.setAttribute("disabled", "");
 
   try {
-    clearSessionCookie();
+    clearSessionCookie();         // Clear session cookie
+    window.localStorage.clear();  // Clear local storage
     config.threadId = null;
     prefetchedThreadMessages = [];
     prefetchedThreadMessagesPromise = null;
@@ -1050,6 +1051,7 @@ async function createNewMessageEntry(
 
 }
 
+/*
 // Handle standard (non-streamed) response
 const handleStandardResponse = async (res: Response) => {
   if (res.ok) {
@@ -1116,6 +1118,11 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
       alert(`Could not send message: ${res.statusText}`);
   }
 };
+*/
+
+function sanitizeResponseMessage(message: string) {
+  return message.replace(/【[^】]*】/g, "");
+}
 
 // Stream response to existing or new message entry
 async function streamResponseToMessageEntry(
@@ -1129,11 +1136,18 @@ async function streamResponseToMessageEntry(
   if (existingMessageElement) {
     // If the message element already exists, update the text
     const messageText = existingMessageElement.querySelector("p")!;
-    messageText.innerHTML = await marked(message, { renderer });
+    messageText.innerHTML = await marked(
+      sanitizeResponseMessage(message),
+      { renderer }
+    );
     return;
   } else {
     // If the message element doesn't exist yet, create a new one
-    await createNewMessageEntry(message, timestamp, from);
+    await createNewMessageEntry(
+      sanitizeResponseMessage(message),
+      timestamp,
+      from
+    );
   }
 }
 
@@ -1156,7 +1170,7 @@ const handleStreamedResponse = async (res: Response) => {
   let ts = Date.now();
 
   while (true) {
-    const { value, done } = await reader.read();
+    const { value, done } = await reader.read(); 
     if (done || value === undefined) {
       break;
     }
@@ -1269,9 +1283,9 @@ async function submit(e: Event) {
 
     if (config.responseIsAStream) {
       await handleStreamedResponse(response);
-    } else {
+    } /*else {
       await handleStandardResponse(response);
-    }
+    }*/
   } catch (e: any) {
     thinkingBubble.remove();
     console.error("BuildShip Chat Widget:", e);
