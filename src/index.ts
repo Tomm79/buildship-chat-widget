@@ -5,23 +5,23 @@ import { marked } from "marked";
 import { widgetHTML } from "./widgetHtmlString";
 import css from "./widget.css";
 
-const WIDGET_BACKDROP_ID = "buildship-chat-widget__backdrop";
-const WIDGET_CONTAINER_ID = "buildship-chat-widget__container";
+const WIDGET_BACKDROP_ID = "chat-widget__backdrop";
+const WIDGET_CONTAINER_ID = "chat-widget__container";
 const WIDGET_MESSAGES_HISTORY_CONTAINER_ID =
-  "buildship-chat-widget__messages_history";
-const WIDGET_THINKING_BUBBLE_ID = "buildship-chat-widget__thinking_bubble";
-const WIDGET_CLEAR_BUTTON_ID = "buildship-chat-widget__clear";
-const WIDGET_COLLAPSE_TAB_ID = "buildship-chat-widget__collapse-tab";
-const WIDGET_LAUNCHER_ID = "buildship-chat-widget__launcher";
-const WIDGET_LAUNCHER_BADGE_CLASS = "buildship-chat-widget__launcher-badge";
-const DOCUMENT_OPEN_CLASS = "buildship-chat-widget--open";
+  "chat-widget__messages_history";
+const WIDGET_THINKING_BUBBLE_ID = "chat-widget__thinking_bubble";
+const WIDGET_CLEAR_BUTTON_ID = "chat-widget__clear";
+const WIDGET_COLLAPSE_TAB_ID = "chat-widget__collapse-tab";
+const WIDGET_LAUNCHER_ID = "chat-widget__launcher";
+const WIDGET_LAUNCHER_BADGE_CLASS = "chat-widget__launcher-badge";
+const DOCUMENT_OPEN_CLASS = "chat-widget--open";
 const DOCUMENT_LAUNCHER_VISIBLE_CLASS =
-  "buildship-chat-widget--launcher-visible";
-const HIDE_TARGET_DATA_ATTRIBUTE = "data-buildship-chat-widget-hidden";
+  "chat-widget--launcher-visible";
+const HIDE_TARGET_DATA_ATTRIBUTE = "data-chat-widget-hidden";
 const STORAGE_KEYS = {
-  pinnedOpen: "buildship-chat-widget:pinned-open",
-  launcherForced: "buildship-chat-widget:launcher-forced",
-  activeChat: "buildship-chat-widget:active-chat",
+  pinnedOpen: "chat-widget:pinned-open",
+  launcherForced: "chat-widget:launcher-forced",
+  activeChat: "chat-widget:active-chat",
 };
 
 
@@ -428,7 +428,7 @@ function applyActiveStateToLauncher() {
   }
   // Toggle the badge whenever a conversation exists so the indicator persists.
   launcherElement.classList.toggle(
-    "buildship-chat-widget__launcher--active",
+    "chat-widget__launcher--active",
     hasActiveChat
   );
 }
@@ -464,10 +464,10 @@ function initializeLauncher() {
     "aria-label",
     normalized.ariaLabel
   );
-  launcherElement.className = "buildship-chat-widget__launcher";
+  launcherElement.className = "chat-widget__launcher";
 
   const iconWrapper = document.createElement("span");
-  iconWrapper.className = "buildship-chat-widget__launcher-icon";
+  iconWrapper.className = "chat-widget__launcher-icon";
   iconWrapper.innerHTML = `
       <svg width="20" height="20" viewBox="0 0 24 19" aria-hidden="true">
         <path d="M9 6C9.55229 6 10 6.44772 10 7V9C10 9.55228 9.55229 10 9 10C8.44771 10 8 9.55228 8 9V7C8 6.44772 8.44771 6 9 6Z" />
@@ -477,7 +477,7 @@ function initializeLauncher() {
     `;
 
   const labelElement = document.createElement("span");
-  labelElement.className = "buildship-chat-widget__launcher-text";
+  labelElement.className = "chat-widget__launcher-text";
   labelElement.textContent = normalized.text;
 
   const badgeElement = document.createElement("span");
@@ -728,7 +728,7 @@ async function injectPrefetchedThreadMessages() {
 
   prefetchedMessagesInjected = true;
   for (const message of prefetchedThreadMessages) {
-    const messageId = `buildship-chat-widget__message--${message.from}--${message.timestamp}`;
+    const messageId = `chat-widget__message--${message.from}--${message.timestamp}`;
     if (messagesHistory.querySelector(`#${messageId}`)) {
       continue;
     }
@@ -766,7 +766,7 @@ async function handleClearButtonClick(e: Event) {
     resetActiveChatIndicator();
 
     const inputElement = document.getElementById(
-      "buildship-chat-widget__input"
+      "chat-widget__input"
     ) as HTMLTextAreaElement | null;
     inputElement?.focus();
   } finally {
@@ -785,7 +785,7 @@ async function init() {
   await new Promise((resolve) => setTimeout(resolve, 10));
 
   document
-    .querySelector("[data-buildship-chat-widget-button]")
+    .querySelector("[data-chat-widget-button]")
     ?.addEventListener("click", open);
 
   initializeLauncher();
@@ -816,7 +816,7 @@ async function init() {
       }
     }
     const target = document.querySelector(
-      "[data-buildship-chat-widget-button]"
+      "[data-chat-widget-button]"
     );
     await open({ target } as Event);
   }
@@ -843,7 +843,7 @@ thinkingBubble.innerHTML = `
   `;
 
 const trap = createFocusTrap(containerElement, {
-  initialFocus: "#buildship-chat-widget__input",
+  initialFocus: "#chat-widget__input",
   allowOutsideClick: true,
 });
 
@@ -862,13 +862,13 @@ async function open(e: Event) {
   handleWidgetOpened();
 
   const formElement = document.getElementById(
-    "buildship-chat-widget__form"
+    "chat-widget__form"
   ) as HTMLFormElement | null;
   const inputElement = document.getElementById(
-    "buildship-chat-widget__input"
+    "chat-widget__input"
   ) as HTMLTextAreaElement | null;
   const submitButton = document.getElementById(
-    "buildship-chat-widget__submit"
+    "chat-widget__submit"
   ) as HTMLButtonElement | null;
 
   if (inputElement && formElement) {
@@ -940,15 +940,15 @@ async function open(e: Event) {
   }
 
   const chatbotHeaderTitleText = document.createElement("span");
-  chatbotHeaderTitleText.id = "buildship-chat-widget__title_text";
+  chatbotHeaderTitleText.id = "chat-widget__title_text";
   chatbotHeaderTitleText.textContent = config.widgetTitle;
   const chatbotHeaderTitle = document.getElementById(
-    "buildship-chat-widget__title"
+    "chat-widget__title"
   )!;
   chatbotHeaderTitle.appendChild(chatbotHeaderTitleText);
 
   const chatbotHeader = document.getElementById(
-    "buildship-chat-widget__header"
+    "chat-widget__header"
   );
 
   if (config.addClearChat && chatbotHeader) {
@@ -993,7 +993,7 @@ async function open(e: Event) {
   trap.activate();
 
   // Add message history to chatbot body
-  const chatbotBody = document.getElementById("buildship-chat-widget__body")!;
+  const chatbotBody = document.getElementById("chat-widget__body")!;
   chatbotBody.prepend(messagesHistory);
   // Add greating message to message history
   if (config.greetingMessage && messagesHistory.children.length === 0) {
@@ -1031,16 +1031,16 @@ async function createNewMessageEntry(
   from: "system" | "user"
 ) {
   const messageElement = document.createElement("div");
-  messageElement.classList.add("buildship-chat-widget__message");
-  messageElement.classList.add(`buildship-chat-widget__message--${from}`);
-  messageElement.id = `buildship-chat-widget__message--${from}--${timestamp}`;
+  messageElement.classList.add("chat-widget__message");
+  messageElement.classList.add(`chat-widget__message--${from}`);
+  messageElement.id = `chat-widget__message--${from}--${timestamp}`;
 
   const messageText = document.createElement("p");
   messageText.innerHTML = await marked(message, { renderer });
   messageElement.appendChild(messageText);
 
   const messageTimestamp = document.createElement("p");
-  messageTimestamp.classList.add("buildship-chat-widget__message-timestamp");
+  messageTimestamp.classList.add("chat-widget__message-timestamp");
   messageTimestamp.textContent =
     ("0" + new Date(timestamp).getHours()).slice(-2) + // Hours (padded with 0 if needed)
     ":" +
@@ -1069,7 +1069,7 @@ const handleStandardResponse = async (res: Response) => {
         alert(
           `Received an OK response but "threadId" was of incompatible type (expected 'string', received '${typeof responseThreadId}'). Please make sure the API response is configured correctly.
 
-You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
+You can learn more here: https://github.com/rowyio/chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
         );
       return;
     }
@@ -1080,7 +1080,7 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
         alert(
           `Received an OK response but "message" was of incompatible type (expected 'string', received '${typeof responseMessage}'). Please make sure the API response is configured correctly.
 
-You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
+You can learn more here: https://github.com/rowyio/chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
         );
       return;
     }
@@ -1089,7 +1089,7 @@ You can learn more here: https://github.com/rowyio/buildship-chat-widget?tab=rea
       console.error("BuildShip Chat Widget: Server error", res);
       if (!config.disableErrorAlert)
         alert(
-          `Received an OK response but no message was found. Please make sure the API response is configured correctly. You can learn more here:\n\nhttps://github.com/rowyio/buildship-chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
+          `Received an OK response but no message was found. Please make sure the API response is configured correctly. You can learn more here:\n\nhttps://github.com/rowyio/chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
         );
       return;
     }
@@ -1131,7 +1131,7 @@ async function streamResponseToMessageEntry(
   from: "system" | "user"
 ) {
   const existingMessageElement = messagesHistory.querySelector(
-    `#buildship-chat-widget__message--${from}--${timestamp}`
+    `#chat-widget__message--${from}--${timestamp}`
   );
   if (existingMessageElement) {
     // If the message element already exists, update the text
@@ -1238,7 +1238,7 @@ async function submit(e: Event) {
   }
 
   const submitElement = document.getElementById(
-    "buildship-chat-widget__submit"
+    "chat-widget__submit"
   )!;
   submitElement.setAttribute("disabled", "");
 
