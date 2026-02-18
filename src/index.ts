@@ -64,6 +64,7 @@ type LauncherConfig = {
   ariaLabel?: string;
   text?: string;
   rememberVisibility?: boolean;
+  openTriggerClass?: string;
 };
 
 type HideTargetsConfig = {
@@ -121,7 +122,7 @@ const config: WidgetConfig = {
   addClearChat: false,
   launcher: undefined,
   persistOpenState: false,
-  collapseTabLabel: "Chat ausblenden",
+  collapseTabLabel: "Hide chatbot",
   hideTargets: undefined,
   ...(window as any).buildShipChatWidget?.config,
 };
@@ -133,8 +134,9 @@ const DEFAULT_LAUNCHER_PLACEMENT: Required<
   right: "2rem",
 };
 const DEFAULT_LAUNCHER_TEXT = "Chat";
-const DEFAULT_LAUNCHER_ARIA_LABEL = "Chat starten";
-const DEFAULT_COLLAPSE_TAB_LABEL = "Chat ausblenden";
+const DEFAULT_LAUNCHER_ARIA_LABEL = "Open chatbot";
+const DEFAULT_LAUNCHER_OPEN_TRIGGER_CLASS = "chat-widget-open-trigger";
+const DEFAULT_COLLAPSE_TAB_LABEL = "Hide chatbot";
 
 // Internally we always resolve config to this explicit structure.
 type NormalizedLauncherConfig = {
@@ -144,6 +146,7 @@ type NormalizedLauncherConfig = {
   ariaLabel: string;
   text: string;
   rememberVisibility: boolean;
+  openTriggerClass: string;
 };
 
 // Resolve launcher settings from the latest user config (which may be assigned
@@ -163,6 +166,8 @@ function getNormalizedLauncherConfig(): NormalizedLauncherConfig {
     ariaLabel: launcher.ariaLabel ?? DEFAULT_LAUNCHER_ARIA_LABEL,
     text: launcher.text ?? DEFAULT_LAUNCHER_TEXT,
     rememberVisibility: launcher.rememberVisibility ?? true,
+    openTriggerClass:
+      launcher.openTriggerClass ?? DEFAULT_LAUNCHER_OPEN_TRIGGER_CLASS,
   };
 }
 
@@ -213,6 +218,12 @@ function removeStorageItem(key: string) {
   } catch {
     // ignore
   }
+}
+
+function clearWidgetConversationStorage() {
+  removeStorageItem(STORAGE_KEYS.activeChat);
+  removeStorageItem(STORAGE_KEYS.pinnedOpen);
+  removeStorageItem(STORAGE_KEYS.launcherForced);
 }
 
 function readBooleanFromStorage(key: string) {
@@ -331,6 +342,83 @@ let hasActiveChat = initialActiveChatState;
 let isWidgetOpen = false;
 let launcherElement: HTMLButtonElement | null = null;
 let isLauncherCurrentlyVisible = false;
+let launcherOpenTriggerListenerRegistered = false;
+const LAUNCHER_OPEN_TRIGGER_HIDDEN_ATTRIBUTE =
+  "data-chat-widget-launcher-open-trigger-hidden";
+const launcherOpenTriggerHiddenElements = new Set<HTMLElement>();
+
+function getLauncherOpenTriggerClass() {
+  return getNormalizedLauncherConfig().openTriggerClass.trim();
+}
+
+function collectLauncherOpenTriggerElements(): HTMLElement[] {
+  const className = getLauncherOpenTriggerClass();
+  if (!className) {
+    return [];
+  }
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(`.${className}`)
+  );
+}
+
+function hideLauncherOpenTriggerElement(element: HTMLElement) {
+  if (!launcherOpenTriggerHiddenElements.has(element)) {
+    element.setAttribute(
+      LAUNCHER_OPEN_TRIGGER_HIDDEN_ATTRIBUTE,
+      element.style.display || ""
+    );
+    launcherOpenTriggerHiddenElements.add(element);
+  }
+  element.style.display = "none";
+}
+
+function restoreHiddenLauncherOpenTriggerElements() {
+  launcherOpenTriggerHiddenElements.forEach((element) => {
+    const previousDisplay =
+      element.getAttribute(LAUNCHER_OPEN_TRIGGER_HIDDEN_ATTRIBUTE) ?? "";
+    element.style.display = previousDisplay;
+    element.removeAttribute(LAUNCHER_OPEN_TRIGGER_HIDDEN_ATTRIBUTE);
+  });
+  launcherOpenTriggerHiddenElements.clear();
+}
+
+function updateLauncherOpenTriggerVisibility() {
+  if (!isLauncherHiddenByRestrictToPaths()) {
+    if (launcherOpenTriggerHiddenElements.size) {
+      restoreHiddenLauncherOpenTriggerElements();
+    }
+    return;
+  }
+  const triggerElements = collectLauncherOpenTriggerElements();
+  triggerElements.forEach((element) => hideLauncherOpenTriggerElement(element));
+}
+
+function handleLauncherOpenTriggerClick(e: Event) {
+  const className = getLauncherOpenTriggerClass();
+  if (!className) {
+    return;
+  }
+  const clickTarget = e.target as HTMLElement | null;
+  const triggerElement = clickTarget?.closest?.(
+    `.${className}`
+  ) as HTMLElement | null;
+  if (!triggerElement || isLauncherHiddenByRestrictToPaths()) {
+    return;
+  }
+  e.preventDefault();
+  if (isPersistOpenStateEnabled()) {
+    setPinnedOpenState(true);
+  }
+  open({ target: document.body } as unknown as Event);
+}
+
+function ensureLauncherOpenTriggerListener() {
+  if (launcherOpenTriggerListenerRegistered) {
+    return;
+  }
+  document.addEventListener("click", handleLauncherOpenTriggerClick);
+  launcherOpenTriggerListenerRegistered = true;
+}
 
 function normalizePath(path: string) {
   if (!path) {
@@ -390,10 +478,23 @@ function shouldDisplayLauncher() {
   return restrictToPaths.some((rule) => pathMatchesRule(rule));
 }
 
+function isLauncherHiddenByRestrictToPaths() {
+  const normalized = getNormalizedLauncherConfig();
+  if (!normalized.enabled || launcherVisibilityForced) {
+    return false;
+  }
+  const restrictToPaths = getLauncherRestrictToPaths();
+  if (!restrictToPaths.length) {
+    return false;
+  }
+  return !restrictToPaths.some((rule) => pathMatchesRule(rule));
+}
+
 function updateLauncherVisibility() {
   if (!launcherElement) {
     isLauncherCurrentlyVisible = false;
     updateHideTargetsVisibility();
+    updateLauncherOpenTriggerVisibility();
     return;
   }
   // Hide the launcher while the chat drawer is visible to avoid duplicate affordances.
@@ -405,6 +506,7 @@ function updateLauncherVisibility() {
   );
   isLauncherCurrentlyVisible = shouldBeVisible;
   updateHideTargetsVisibility();
+  updateLauncherOpenTriggerVisibility();
 }
 
 function applyLauncherPlacementStyles() {
@@ -748,7 +850,10 @@ async function handleClearButtonClick(e: Event) {
 
   try {
     clearSessionCookie();         // Clear session cookie
-    window.localStorage.clear();  // Clear local storage
+    clearWidgetConversationStorage(); // Clear only conversation state
+    setPinnedOpenState(false);
+    launcherVisibilityForced = false;
+    THREAD_HISTORY_RAW = { value: { data: [] } }; // Clear in-memory thread history
     config.threadId = null;
     prefetchedThreadMessages = [];
     prefetchedThreadMessagesPromise = null;
@@ -788,7 +893,9 @@ async function init() {
     .querySelector("[data-chat-widget-button]")
     ?.addEventListener("click", open);
 
+  ensureLauncherOpenTriggerListener();
   initializeLauncher();
+  updateLauncherOpenTriggerVisibility();
 
   if (
     config.threadId &&
@@ -907,6 +1014,13 @@ async function open(e: Event) {
     };
 
     inputElement.addEventListener("input", adjustInputHeight);
+    inputElement.addEventListener("input", () => {
+      if (!hasActiveChat && inputElement.value.trim()) {
+        markChatAsActive();
+        setPinnedOpenState(true);
+        forceLauncherVisibility();
+      }
+    });
     inputElement.addEventListener("focus", adjustInputHeight);
     inputElement.addEventListener("keydown", (event) => {
       if (

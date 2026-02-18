@@ -48,11 +48,12 @@
       window.buildShipChatWidget.config.addClearChat = true ;
 // Settings for launcher button
       window.buildShipChatWidget.config.persistOpenState = true;
-      window.buildShipChatWidget.config.collapseTabLabel = "Hide chatbot";
+      window.buildShipChatWidget.config.collapseTabLabel = "Hide chatbot"; // Optional - Default: "Hide chatbot"
       window.buildShipChatWidget.config.launcher = {
         enabled: true,
+        openTriggerClass: "chat-widget-open-trigger",  // Optional - Default: "chat-widget-open-trigger" 
         text: "Chatbot",
-        ariaLabel: "Open chatbot",
+        ariaLabel: "Open chatbot", // Optional - Default: "Open chatbot"
         restrictToPaths: [],
         placement: {
           bottom: "40px",
