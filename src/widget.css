@@ -420,3 +420,55 @@
 .chat-widget__launcher--active .chat-widget__launcher-badge {
   opacity: 1;
 }
+
+#chat-widget__launcher-greeting {
+  position: fixed;
+  z-index: 9998;
+  max-width: min(18rem, calc(100vw - 1.5rem));
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--chat-widget-border-color);
+  background-color: var(--chat-widget-bg-color);
+  color: var(--chat-widget-primary-color-text);
+  box-shadow: var(--chat-widget-shadow);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.35;
+  display: none;
+  cursor: pointer;
+}
+#chat-widget__launcher-greeting::after {
+  content: "";
+  position: absolute;
+  right: 1.1rem;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background-color: var(--chat-widget-bg-color);
+  border-right: 1px solid var(--chat-widget-border-color);
+  border-bottom: 1px solid var(--chat-widget-border-color);
+}
+#chat-widget__launcher-greeting p {
+  margin: 0;
+  padding-right: 1.2rem;
+}
+#chat-widget__launcher-greeting button {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.3rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: none;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: var(--chat-widget-secondary-color-text);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+#chat-widget__launcher-greeting button:hover,
+#chat-widget__launcher-greeting button:focus-visible {
+  color: var(--chat-widget-primary-color);
+}

@@ -14,6 +14,7 @@ const WIDGET_CLEAR_BUTTON_ID = "chat-widget__clear";
 const WIDGET_COLLAPSE_TAB_ID = "chat-widget__collapse-tab";
 const WIDGET_LAUNCHER_ID = "chat-widget__launcher";
 const WIDGET_LAUNCHER_BADGE_CLASS = "chat-widget__launcher-badge";
+const WIDGET_LAUNCHER_GREETING_ID = "chat-widget__launcher-greeting";
 const DOCUMENT_OPEN_CLASS = "chat-widget--open";
 const DOCUMENT_LAUNCHER_VISIBLE_CLASS =
   "chat-widget--launcher-visible";
@@ -22,7 +23,10 @@ const STORAGE_KEYS = {
   pinnedOpen: "chat-widget:pinned-open",
   launcherForced: "chat-widget:launcher-forced",
   activeChat: "chat-widget:active-chat",
+  launcherGreetingDismissed: "chat-widget:launcher-greeting-dismissed",
 };
+const DEFAULT_LAUNCHER_GREETING_TEXT =
+  "Hi, how can I help you?";
 
 
 // Functions to handle thread id as session cookie
@@ -63,6 +67,8 @@ type LauncherConfig = {
   placement?: LauncherPlacement;
   ariaLabel?: string;
   text?: string;
+  showGreeting?: boolean;
+  greetingText?: string;
   rememberVisibility?: boolean;
   openTriggerClass?: string;
 };
@@ -145,6 +151,8 @@ type NormalizedLauncherConfig = {
   placement: LauncherPlacement;
   ariaLabel: string;
   text: string;
+  showGreeting: boolean;
+  greetingText: string;
   rememberVisibility: boolean;
   openTriggerClass: string;
 };
@@ -165,6 +173,9 @@ function getNormalizedLauncherConfig(): NormalizedLauncherConfig {
     },
     ariaLabel: launcher.ariaLabel ?? DEFAULT_LAUNCHER_ARIA_LABEL,
     text: launcher.text ?? DEFAULT_LAUNCHER_TEXT,
+    showGreeting: launcher.showGreeting ?? true,
+    greetingText:
+      launcher.greetingText?.trim() || DEFAULT_LAUNCHER_GREETING_TEXT,
     rememberVisibility: launcher.rememberVisibility ?? true,
     openTriggerClass:
       launcher.openTriggerClass ?? DEFAULT_LAUNCHER_OPEN_TRIGGER_CLASS,
@@ -341,7 +352,11 @@ let hasActiveChat = initialActiveChatState;
 
 let isWidgetOpen = false;
 let launcherElement: HTMLButtonElement | null = null;
+let launcherGreetingElement: HTMLDivElement | null = null;
 let isLauncherCurrentlyVisible = false;
+let launcherGreetingDismissed = readBooleanFromStorage(
+  STORAGE_KEYS.launcherGreetingDismissed
+);
 let launcherOpenTriggerListenerRegistered = false;
 const LAUNCHER_OPEN_TRIGGER_HIDDEN_ATTRIBUTE =
   "data-chat-widget-launcher-open-trigger-hidden";
@@ -406,6 +421,7 @@ function handleLauncherOpenTriggerClick(e: Event) {
     return;
   }
   e.preventDefault();
+  dismissLauncherGreeting(true);
   if (isPersistOpenStateEnabled()) {
     setPinnedOpenState(true);
   }
@@ -493,6 +509,7 @@ function isLauncherHiddenByRestrictToPaths() {
 function updateLauncherVisibility() {
   if (!launcherElement) {
     isLauncherCurrentlyVisible = false;
+    updateLauncherGreetingVisibility();
     updateHideTargetsVisibility();
     updateLauncherOpenTriggerVisibility();
     return;
@@ -505,6 +522,7 @@ function updateLauncherVisibility() {
     shouldBeVisible
   );
   isLauncherCurrentlyVisible = shouldBeVisible;
+  updateLauncherGreetingVisibility();
   updateHideTargetsVisibility();
   updateLauncherOpenTriggerVisibility();
 }
@@ -547,15 +565,85 @@ function resetActiveChatIndicator() {
   applyActiveStateToLauncher();
 }
 
+function dismissLauncherGreeting(persist = true) {
+  if (!launcherGreetingElement) {
+    if (persist) {
+      launcherGreetingDismissed = true;
+      setBooleanInStorage(STORAGE_KEYS.launcherGreetingDismissed, true);
+    }
+    return;
+  }
+
+  launcherGreetingElement.style.display = "none";
+  if (persist) {
+    launcherGreetingDismissed = true;
+    setBooleanInStorage(STORAGE_KEYS.launcherGreetingDismissed, true);
+  }
+}
+
+function updateLauncherGreetingPlacement() {
+  if (!launcherElement || !launcherGreetingElement) {
+    return;
+  }
+
+  const launcherRect = launcherElement.getBoundingClientRect();
+  const bubbleWidth = launcherGreetingElement.offsetWidth;
+  const bubbleHeight = launcherGreetingElement.offsetHeight;
+  const viewportWidth = window.innerWidth;
+  const minViewportPadding = 12;
+  let left = launcherRect.right - bubbleWidth;
+  if (left < minViewportPadding) {
+    left = minViewportPadding;
+  }
+  if (left + bubbleWidth > viewportWidth - minViewportPadding) {
+    left = viewportWidth - bubbleWidth - minViewportPadding;
+  }
+
+  launcherGreetingElement.style.left = `${left}px`;
+  launcherGreetingElement.style.top = `${Math.max(
+    minViewportPadding,
+    launcherRect.top - bubbleHeight - 10
+  )}px`;
+}
+
+function updateLauncherGreetingVisibility() {
+  if (!launcherGreetingElement) {
+    return;
+  }
+
+  const normalized = getNormalizedLauncherConfig();
+  const hasGreetingText = normalized.greetingText.trim().length > 0;
+  const shouldShowGreeting =
+    normalized.showGreeting &&
+    hasGreetingText &&
+    isLauncherCurrentlyVisible &&
+    !isWidgetOpen &&
+    !launcherGreetingDismissed;
+  launcherGreetingElement.style.display = shouldShowGreeting ? "block" : "none";
+  if (shouldShowGreeting) {
+    updateLauncherGreetingPlacement();
+  }
+}
+
 function initializeLauncher() {
   const normalized = getNormalizedLauncherConfig();
   if (!normalized.enabled) {
+    if (launcherGreetingElement) {
+      launcherGreetingElement.style.display = "none";
+    }
     return;
   }
   if (launcherElement) {
     applyLauncherPlacementStyles();
     applyActiveStateToLauncher();
+    if (launcherGreetingElement) {
+      const greetingTextElement = launcherGreetingElement.querySelector("p");
+      if (greetingTextElement) {
+        greetingTextElement.textContent = normalized.greetingText;
+      }
+    }
     updateLauncherVisibility();
+    updateLauncherGreetingPlacement();
     return;
   }
 
@@ -589,6 +677,35 @@ function initializeLauncher() {
   launcherElement.addEventListener("click", handleLauncherClick);
   document.body.appendChild(launcherElement);
 
+  launcherGreetingElement = document.createElement("div");
+  launcherGreetingElement.id = WIDGET_LAUNCHER_GREETING_ID;
+  launcherGreetingElement.className = "chat-widget__launcher-greeting";
+    const greetingTextElement = document.createElement("p");
+  greetingTextElement.textContent = normalized.greetingText;
+  const greetingCloseButton = document.createElement("button");
+  greetingCloseButton.type = "button";
+  greetingCloseButton.setAttribute("aria-label", "Hinweis schliessen");
+  greetingCloseButton.innerHTML = "&times;";
+  launcherGreetingElement.append(greetingTextElement, greetingCloseButton);
+  launcherGreetingElement.addEventListener("click", (event) => {
+    const closeTarget = (event.target as HTMLElement | null)?.closest(
+      "button"
+    ) as HTMLButtonElement | null;
+    if (closeTarget) {
+      event.preventDefault();
+      event.stopPropagation();
+      dismissLauncherGreeting(true);
+      return;
+    }
+    if (isPersistOpenStateEnabled()) {
+      setPinnedOpenState(true);
+    }
+    dismissLauncherGreeting(true);
+    open({ target: document.body } as unknown as Event);
+  });
+  document.body.appendChild(launcherGreetingElement);
+  window.addEventListener("resize", updateLauncherGreetingPlacement);
+
   applyLauncherPlacementStyles();
   applyActiveStateToLauncher();
   updateLauncherVisibility();
@@ -596,6 +713,7 @@ function initializeLauncher() {
 
 function handleLauncherClick(e: Event) {
   e.preventDefault();
+  dismissLauncherGreeting(true);
   if (isPersistOpenStateEnabled()) {
     setPinnedOpenState(true);
   }
@@ -1421,3 +1539,4 @@ declare global {
 }
 
 export default buildShipChatWidget;
+
