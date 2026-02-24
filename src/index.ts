@@ -12,6 +12,11 @@ const WIDGET_MESSAGES_HISTORY_CONTAINER_ID =
 const WIDGET_THINKING_BUBBLE_ID = "chat-widget__thinking_bubble";
 const WIDGET_CLEAR_BUTTON_ID = "chat-widget__clear";
 const WIDGET_COLLAPSE_TAB_ID = "chat-widget__collapse-tab";
+const WIDGET_PRIVACY_NOTICE_ID = "chat-widget__privacy_notice";
+const WIDGET_PRIVACY_NOTICE_TEXT_ID = "chat-widget__privacy_notice_text";
+const WIDGET_PRIVACY_NOTICE_CLOSE_ID = "chat-widget__privacy_notice_close";
+const WIDGET_PRIVACY_LINK_ID = "chat-widget__privacy_link";
+const WIDGET_PRIVACY_HEADER_TRIGGER_ID = "chat-widget__privacy_trigger";
 const WIDGET_LAUNCHER_ID = "chat-widget__launcher";
 const WIDGET_LAUNCHER_BADGE_CLASS = "chat-widget__launcher-badge";
 const WIDGET_LAUNCHER_GREETING_ID = "chat-widget__launcher-greeting";
@@ -97,6 +102,8 @@ export type WidgetConfig = {
   urlFetchThreadHistory: string;
   urlFetchUpdateThreadHistory: string;
   addClearChat: boolean;
+  privacyInfoLinkText?: string;
+  privacyNoticeText?: string;
   launcher?: LauncherConfig;
   persistOpenState?: boolean;
   collapseTabLabel?: string;
@@ -126,6 +133,8 @@ const config: WidgetConfig = {
   urlFetchThreadHistory: "",
   urlFetchUpdateThreadHistory: "",
   addClearChat: false,
+  privacyInfoLinkText: "Infos zum Datenschutz",
+  privacyNoticeText: "Bitte geben Sie keine sensiblen Daten ein.",
   launcher: undefined,
   persistOpenState: false,
   collapseTabLabel: "Hide chatbot",
@@ -557,12 +566,14 @@ function markChatAsActive() {
   hasActiveChat = true;
   setBooleanInStorage(STORAGE_KEYS.activeChat, true);
   applyActiveStateToLauncher();
+  updatePrivacyLinkVisibility();
 }
 
 function resetActiveChatIndicator() {
   hasActiveChat = false;
   setBooleanInStorage(STORAGE_KEYS.activeChat, false);
   applyActiveStateToLauncher();
+  updatePrivacyLinkVisibility();
 }
 
 function dismissLauncherGreeting(persist = true) {
@@ -753,6 +764,96 @@ type PrefetchedThreadMessage = {
 let prefetchedThreadMessages: PrefetchedThreadMessage[] = [];
 let prefetchedThreadMessagesPromise: Promise<void> | null = null;
 let prefetchedMessagesInjected = false;
+let privacyNoticeDismissed = false;
+
+function getPrivacyInfoLinkText() {
+  return config.privacyInfoLinkText?.trim() || "Privacy Notice";
+}
+
+function getPrivacyNoticeText() {
+  return (
+    config.privacyNoticeText?.trim() ||
+    "Please do not enter any sensitive data."
+  );
+}
+
+function hidePrivacyNotice(markDismissed = true) {
+  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  if (!privacyNotice || privacyNotice.hidden) {
+    containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
+    return;
+  }
+  privacyNotice.hidden = true;
+  privacyNoticeDismissed = markDismissed;
+  containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
+}
+
+function maybeHidePrivacyNoticeForSpace() {
+  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  if (!privacyNotice || privacyNotice.hidden) {
+    containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
+    return;
+  }
+  containerElement.style.setProperty(
+    "--chat-widget-privacy-height",
+    `${privacyNotice.offsetHeight}px`
+  );
+
+  const chatbotBody = document.getElementById("chat-widget__body");
+  if (!chatbotBody) {
+    return;
+  }
+
+  // Keep enough room for message history and composer.
+  const requiredBodyHeight = 180;
+  if (chatbotBody.clientHeight < requiredBodyHeight) {
+    hidePrivacyNotice();
+  }
+}
+
+function showPrivacyNotice() {
+  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  if (!privacyNotice) {
+    return;
+  }
+  privacyNotice.hidden = false;
+  privacyNoticeDismissed = false;
+  const privacyHeight = privacyNotice.offsetHeight;
+  containerElement.style.setProperty(
+    "--chat-widget-privacy-height",
+    `${privacyHeight}px`
+  );
+  maybeHidePrivacyNoticeForSpace();
+}
+
+function hasRenderedChatMessages() {
+  return Boolean(messagesHistory.querySelector(".chat-widget__message"));
+}
+
+function updatePrivacyLinkVisibility() {
+  // Keep link visible only for a fresh conversation.
+  privacyLinkElement.hidden = hasActiveChat;
+}
+
+function handlePrivacyLinkClick(e: Event) {
+  e.preventDefault();
+  showPrivacyNotice();
+}
+
+function handlePrivacyNoticeCloseClick(e: Event) {
+  e.preventDefault();
+  hidePrivacyNotice();
+}
+
+function handlePrivacyHeaderTriggerClick(e: Event) {
+  e.preventDefault();
+  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  if (privacyNotice && !privacyNotice.hidden) {
+    hidePrivacyNotice();
+    return;
+  }
+  showPrivacyNotice();
+}
 
 // Structure of a raw thread history message.
 type ThreadHistoryRawMessage = {
@@ -982,6 +1083,11 @@ async function handleClearButtonClick(e: Event) {
     }
 
     messagesHistory.innerHTML = "";
+    messagesHistory.appendChild(privacyLinkElement);
+    privacyLinkElement.textContent = getPrivacyInfoLinkText();
+    privacyNoticeDismissed = false;
+    updatePrivacyLinkVisibility();
+    hidePrivacyNotice(false);
 
     if (config.greetingMessage) {
       await createNewMessageEntry(config.greetingMessage, Date.now(), "system");
@@ -1055,6 +1161,12 @@ containerElement.id = WIDGET_CONTAINER_ID;
 
 const messagesHistory = document.createElement("div");
 messagesHistory.id = WIDGET_MESSAGES_HISTORY_CONTAINER_ID;
+
+const privacyLinkElement = document.createElement("button");
+privacyLinkElement.id = WIDGET_PRIVACY_LINK_ID;
+privacyLinkElement.type = "button";
+privacyLinkElement.className = "chat-widget__privacy-link";
+privacyLinkElement.hidden = true;
 
 const optionalBackdrop = document.createElement("div");
 optionalBackdrop.id = WIDGET_BACKDROP_ID;
@@ -1182,28 +1294,90 @@ async function open(e: Event) {
   const chatbotHeader = document.getElementById(
     "chat-widget__header"
   );
+  let privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  if (!privacyNotice && chatbotHeader?.parentElement) {
+    privacyNotice = document.createElement("div");
+    privacyNotice.id = WIDGET_PRIVACY_NOTICE_ID;
+    privacyNotice.hidden = true;
+    privacyNotice.innerHTML = `
+      <p id="${WIDGET_PRIVACY_NOTICE_TEXT_ID}"></p>
+      <button id="${WIDGET_PRIVACY_NOTICE_CLOSE_ID}" type="button" aria-label="Hide privacy notice">x</button>
+    `;
+    chatbotHeader.insertAdjacentElement("afterend", privacyNotice);
+  }
+  const privacyNoticeText = privacyNotice?.querySelector(
+    `#${WIDGET_PRIVACY_NOTICE_TEXT_ID}`
+  ) as HTMLParagraphElement | null;
+  const privacyNoticeClose = privacyNotice?.querySelector(
+    `#${WIDGET_PRIVACY_NOTICE_CLOSE_ID}`
+  ) as HTMLButtonElement | null;
+
+  if (privacyNoticeText) {
+    privacyNoticeText.innerHTML = getPrivacyNoticeText();
+  }
+
+  if (privacyNoticeClose) {
+    privacyNoticeClose.removeEventListener("click", handlePrivacyNoticeCloseClick);
+    privacyNoticeClose.addEventListener("click", handlePrivacyNoticeCloseClick);
+  }
+
+  privacyNoticeDismissed = false;
+  privacyNotice?.setAttribute("hidden", "");
+  containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
 
   if (config.addClearChat && chatbotHeader) {
-    let clearButton = document.getElementById(
-      WIDGET_CLEAR_BUTTON_ID
+    let privacyHeaderTrigger = document.getElementById(
+      WIDGET_PRIVACY_HEADER_TRIGGER_ID
     ) as HTMLButtonElement | null;
+    if (!privacyHeaderTrigger) {
+      privacyHeaderTrigger = document.createElement("button");
+      privacyHeaderTrigger.id = WIDGET_PRIVACY_HEADER_TRIGGER_ID;
+      privacyHeaderTrigger.type = "button";
+      privacyHeaderTrigger.textContent = "i";
+      privacyHeaderTrigger.setAttribute("aria-label", "Show privacy notice");
+      chatbotHeader.appendChild(privacyHeaderTrigger);
+    }
+    privacyHeaderTrigger.removeEventListener(
+      "click",
+      handlePrivacyHeaderTriggerClick
+    );
+    privacyHeaderTrigger.addEventListener("click", handlePrivacyHeaderTriggerClick);
+
+    let clearButtonNode = document.getElementById(WIDGET_CLEAR_BUTTON_ID);
+    let clearButton: HTMLButtonElement | null =
+      clearButtonNode instanceof HTMLButtonElement ? clearButtonNode : null;
 
     if (!clearButton) {
-      clearButton = document.createElement("button");
-      clearButton.id = WIDGET_CLEAR_BUTTON_ID;
-      clearButton.type = "button";
-      clearButton.textContent = "Clear";
-      clearButton.setAttribute("aria-label", "Clear conversation");
+      const replacement = document.createElement("button");
+      replacement.id = WIDGET_CLEAR_BUTTON_ID;
+      replacement.type = "button";
+      replacement.setAttribute("aria-label", "Clear conversation");
+      replacement.setAttribute("data-tooltip", "Clear chat");
+      replacement.innerHTML = `
+        <svg viewBox="0 0 30 26" width="16" height="16" aria-hidden="true">
+          <path d="M 15 3 C 12.031398 3 9.3028202 4.0834384 7.2070312 5.875 A 1.0001 1.0001 0 1 0 8.5058594 7.3945312 C 10.25407 5.9000929 12.516602 5 15 5 C 20.19656 5 24.450989 8.9379267 24.951172 14 L 22 14 L 26 20 L 30 14 L 26.949219 14 C 26.437925 7.8516588 21.277839 3 15 3 z M 4 10 L 0 16 L 3.0507812 16 C 3.562075 22.148341 8.7221607 27 15 27 C 17.968602 27 20.69718 25.916562 22.792969 24.125 A 1.0001 1.0001 0 1 0 21.494141 22.605469 C 19.74593 24.099907 17.483398 25 15 25 C 9.80344 25 5.5490109 21.062074 5.0488281 16 L 8 16 L 4 10 z" fill="currentColor" />
+        </svg>
+      `;
+      if (clearButtonNode && clearButtonNode.parentElement) {
+        clearButtonNode.replaceWith(replacement);
+      }
+      clearButton = replacement;
     } else {
       clearButton.removeEventListener("click", handleClearButtonClick);
+      clearButton.setAttribute("data-tooltip", "Clear chat");
     }
 
     if (clearButton && !clearButton.parentElement) {
       chatbotHeader.appendChild(clearButton);
     }
 
+    if (privacyHeaderTrigger && clearButton) {
+      chatbotHeader.insertBefore(privacyHeaderTrigger, clearButton);
+    }
+
     clearButton?.addEventListener("click", handleClearButtonClick);
   } else {
+    document.getElementById(WIDGET_PRIVACY_HEADER_TRIGGER_ID)?.remove();
     document.getElementById(WIDGET_CLEAR_BUTTON_ID)?.remove();
   }
 
@@ -1227,12 +1401,22 @@ async function open(e: Event) {
   // Add message history to chatbot body
   const chatbotBody = document.getElementById("chat-widget__body")!;
   chatbotBody.prepend(messagesHistory);
+  if (!privacyLinkElement.parentElement) {
+    messagesHistory.appendChild(privacyLinkElement);
+  }
+  privacyLinkElement.textContent = getPrivacyInfoLinkText();
+  privacyLinkElement.removeEventListener("click", handlePrivacyLinkClick);
+  privacyLinkElement.addEventListener("click", handlePrivacyLinkClick);
+  updatePrivacyLinkVisibility();
   // Add greating message to message history
-  if (config.greetingMessage && messagesHistory.children.length === 0) {
-    createNewMessageEntry(config.greetingMessage, Date.now(), "system");
+  if (config.greetingMessage && !hasRenderedChatMessages()) {
+    await createNewMessageEntry(config.greetingMessage, Date.now(), "system");
   }
   // Inject prefetched thread history to message history
   await injectPrefetchedThreadMessages();
+  updatePrivacyLinkVisibility();
+  maybeHidePrivacyNoticeForSpace();
+  window.addEventListener("resize", maybeHidePrivacyNoticeForSpace);
   
   if (config.closeOnOutsideClick) {
     document
@@ -1251,6 +1435,7 @@ function close() {
 
   containerElement.remove();
   optionalBackdrop.remove();
+  window.removeEventListener("resize", maybeHidePrivacyNoticeForSpace);
   cleanup();
   cleanup = () => {};
   handleWidgetClosed();
@@ -1280,6 +1465,10 @@ async function createNewMessageEntry(
   messageElement.appendChild(messageTimestamp);
 
   messagesHistory.prepend(messageElement);
+  updatePrivacyLinkVisibility();
+  if (!privacyNoticeDismissed) {
+    maybeHidePrivacyNoticeForSpace();
+  }
 
 }
 
@@ -1486,6 +1675,7 @@ async function submit(e: Event) {
 
   await createNewMessageEntry(data.message, data.timestamp, "user");
   markChatAsActive();
+  hidePrivacyNotice();
   
   // Add new message to thread history cache (don't update server)
   await appendToThreadHistoryRaw(
