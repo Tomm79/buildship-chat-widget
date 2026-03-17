@@ -269,36 +269,12 @@ For example, the variables can be overridden like so:
 :root {
   --buildship-chat-widget-primary-color: #0000ff;
 }
-
-/* Explicitly targeting the light theme is necessary in case the user's system theme is set to 'dark', but the body's `data-theme` attribute is set to `light` (perhaps via a theme toggle on the page). */
-[data-theme*="light"] {
-  ...;
-}
 ```
 
-Dark mode is activated when either:
-
-- the user's system theme is set to `dark` (i.e. `@media (prefers-color-scheme: dark)` is true) and that's what the page uses, or
-
-- the body has a `data-theme` attribute set to `dark`, like so:
-
-  ```html
-  <body data-theme="dark"></body>
-  ```
-
-Dark mode styles can be overridden as well:
-
-```css
-@media (prefers-color-scheme: dark) {
-  :root {
-    ...;
-  }
-}
-
-[data-theme*="dark"] {
-  ...;
-}
-```
+The widget ships with a single built-in light theme. It no longer reacts to
+system dark mode or page-level `data-theme` attributes. If needed, customize
+its appearance by overriding the same CSS variables or selectors in your page
+styles.
 
 The font is inherited from the body.
 
