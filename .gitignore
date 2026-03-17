@@ -1,4 +1,6 @@
 dist/
+avgs_settings/
+info/
 node_modules/
 .vs
 package-lock.json
