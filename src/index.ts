@@ -4,6 +4,11 @@ import { marked } from "marked";
 
 import { widgetHTML } from "./widgetHtmlString";
 import css from "./widget.css";
+import {
+  isLauncherHiddenByPathFilters as isLauncherHiddenByPathFiltersForPath,
+  normalizeLauncherPathRules,
+  shouldDisplayLauncherForPath,
+} from "./launcherPathRules";
 
 const WIDGET_BACKDROP_ID = "chat-widget__backdrop";
 const WIDGET_CONTAINER_ID = "chat-widget__container";
@@ -69,6 +74,7 @@ type LauncherPlacement = Partial<
 type LauncherConfig = {
   enabled?: boolean;
   restrictToPaths?: string[];
+  hideOnPaths?: string[];
   placement?: LauncherPlacement;
   ariaLabel?: string;
   text?: string;
@@ -157,6 +163,7 @@ const DEFAULT_COLLAPSE_TAB_LABEL = "Hide chatbot";
 type NormalizedLauncherConfig = {
   enabled: boolean;
   restrictToPaths: string[];
+  hideOnPaths: string[];
   placement: LauncherPlacement;
   ariaLabel: string;
   text: string;
@@ -174,6 +181,7 @@ function getNormalizedLauncherConfig(): NormalizedLauncherConfig {
   return {
     enabled: launcher.enabled ?? false,
     restrictToPaths: launcher.restrictToPaths ?? [],
+    hideOnPaths: launcher.hideOnPaths ?? [],
     placement: {
       top: placement.top ?? "",
       right: placement.right ?? DEFAULT_LAUNCHER_PLACEMENT.right,
@@ -192,9 +200,13 @@ function getNormalizedLauncherConfig(): NormalizedLauncherConfig {
 }
 
 function getLauncherRestrictToPaths() {
-  return getNormalizedLauncherConfig()
-    .restrictToPaths.map((path) => path.trim())
-    .filter(Boolean);
+  return normalizeLauncherPathRules(
+    getNormalizedLauncherConfig().restrictToPaths
+  );
+}
+
+function getLauncherHideOnPaths() {
+  return normalizeLauncherPathRules(getNormalizedLauncherConfig().hideOnPaths);
 }
 
 function getCollapseTabLabel() {
@@ -407,7 +419,7 @@ function restoreHiddenLauncherOpenTriggerElements() {
 }
 
 function updateLauncherOpenTriggerVisibility() {
-  if (!isLauncherHiddenByRestrictToPaths()) {
+  if (!isLauncherHiddenByPathFilters()) {
     if (launcherOpenTriggerHiddenElements.size) {
       restoreHiddenLauncherOpenTriggerElements();
     }
@@ -426,7 +438,7 @@ function handleLauncherOpenTriggerClick(e: Event) {
   const triggerElement = clickTarget?.closest?.(
     `.${className}`
   ) as HTMLElement | null;
-  if (!triggerElement || isLauncherHiddenByRestrictToPaths()) {
+  if (!triggerElement || isLauncherHiddenByPathFilters()) {
     return;
   }
   e.preventDefault();
@@ -445,74 +457,26 @@ function ensureLauncherOpenTriggerListener() {
   launcherOpenTriggerListenerRegistered = true;
 }
 
-function normalizePath(path: string) {
-  if (!path) {
-    return "/";
-  }
-  let candidate = path;
-  if (candidate.includes("://")) {
-    try {
-      candidate = new URL(candidate).pathname;
-    } catch {
-      // ignore invalid URLs
-    }
-  }
-  if (!candidate.startsWith("/")) {
-    candidate = `/${candidate}`;
-  }
-  candidate = candidate.replace(/\/+$/, "");
-  if (candidate === "") {
-    candidate = "/";
-  }
-  return candidate;
-}
-
-function pathMatchesRule(rule: string) {
-  const trimmedRule = rule.trim();
-  if (!trimmedRule) {
-    return false;
-  }
-  // Support "*" for all pages and prefix matching via "/foo/*" rules.
-  if (trimmedRule === "*") {
-    return true;
-  }
-  const hasWildcard = trimmedRule.endsWith("*");
-  const ruleWithoutWildcard = hasWildcard
-    ? trimmedRule.slice(0, -1)
-    : trimmedRule;
-  const normalizedRule = normalizePath(ruleWithoutWildcard);
-  const currentPath = normalizePath(window.location?.pathname || "/");
-  if (hasWildcard) {
-    return currentPath.startsWith(normalizedRule);
-  }
-  return currentPath === normalizedRule;
-}
-
 function shouldDisplayLauncher() {
   const normalized = getNormalizedLauncherConfig();
-  if (!normalized.enabled) {
-    return false;
-  }
-  if (launcherVisibilityForced) {
-    return true;
-  }
-  const restrictToPaths = getLauncherRestrictToPaths();
-  if (!restrictToPaths.length) {
-    return true;
-  }
-  return restrictToPaths.some((rule) => pathMatchesRule(rule));
+  return shouldDisplayLauncherForPath({
+    enabled: normalized.enabled,
+    launcherVisibilityForced,
+    restrictToPaths: getLauncherRestrictToPaths(),
+    hideOnPaths: getLauncherHideOnPaths(),
+    currentPath: window.location?.pathname || "/",
+  });
 }
 
-function isLauncherHiddenByRestrictToPaths() {
+function isLauncherHiddenByPathFilters() {
   const normalized = getNormalizedLauncherConfig();
-  if (!normalized.enabled || launcherVisibilityForced) {
-    return false;
-  }
-  const restrictToPaths = getLauncherRestrictToPaths();
-  if (!restrictToPaths.length) {
-    return false;
-  }
-  return !restrictToPaths.some((rule) => pathMatchesRule(rule));
+  return isLauncherHiddenByPathFiltersForPath({
+    enabled: normalized.enabled,
+    launcherVisibilityForced,
+    restrictToPaths: getLauncherRestrictToPaths(),
+    hideOnPaths: getLauncherHideOnPaths(),
+    currentPath: window.location?.pathname || "/",
+  });
 }
 
 function updateLauncherVisibility() {

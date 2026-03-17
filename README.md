@@ -4,12 +4,6 @@ An open-source AI chat widget that can be easily embedded on your website or app
 
 With this powerful AI chat assistant, you can enhance the user experience of your website or app significantly.
 
-## [TRY LIVE DEMO](https://buildship.com/chat-widget/city-advisor)
-
-<!--![AI Chatbot Widget OpenSource - collapsed](https://github.com/rowyio/buildship-chat-widget/assets/307298/c14e4861-b2f7-4a0b-bc68-fae6ef7d9381)
--->
-https://github.com/rowyio/buildship-chat-widget/assets/307298/ba94c03d-e140-41b9-9da5-7bb27689271e
-
 ## Getting started
 
 ### Step 1. Add the widget to your website or app
@@ -46,7 +40,7 @@ https://github.com/rowyio/buildship-chat-widget/assets/307298/ba94c03d-e140-41b9
 - Secondly, place a button with the following data-attribute anywhere on your website or app to open the widget:
 
   ```html
-  <button data-buildship-chat-widget-button>Beep Boop</button>
+  <button data-chat-widget-button>Beep Boop</button>
   ```
 
 <!-- Checkout this complete HTML code snippet sample if you want to test this out in your app first. This snippet has custom CSS styling for the button as well as a deployed test BuildShip API plugged in it. Simply copy paste from here into your website or app with HTML embed element say on Framer or Website and publish to give it a try. -->
@@ -116,17 +110,154 @@ Optionally, there are two ways to set the `threadId` through the response.
 
 The widget can be customized by editing the properties present in the `window.buildShipChatWidget.config` object.
 
-| Property                                              | Type     | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ----------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| window.buildShipChatWidget.config.url                 | Required | The URL of the endpoint to which the widget will make a POST request when the user sends a message. The endpoint should expect a JSON object in the request body and should respond with a JSON object containing the bot's response and the thread ID.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| window.buildShipChatWidget.config.threadId            | Optional | A unique identifier for the conversation. This can be used to maintain the context of the conversation across multiple messages/sessions. If not set, the widget will send the first user message without a thread ID. If you then design your workflow to have it return a thread ID as part of its response (as described in [Request and Response](#requirements-for-your-buildship-workflow)), the widget will automatically use that for the rest of the conversation until the script remains loaded -- for example, the thread ID will be discarded if the page is refreshed. Note: The thread ID returned in the response will not be used if the `threadId` property is already set. |
-| window.buildShipChatWidget.config.user                | Optional | An object containing the user's data. This can be used to send the user's name, email, or any other data that the workflow might need. Example: `window.buildShipChatWidget.config.user = { name: "Some User", email: "user@email.com", // ...Other user data};`                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| window.buildShipChatWidget.config.widgetTitle         | Optional | The title of the widget. This will be displayed at the top of the widget. Defaults to `Chatbot`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| window.buildShipChatWidget.config.greetingMessage     | Optional | The message that will be displayed (as though it were sent by the system) when the widget is first opened. Defaults to not displaying any greeting message.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| window.buildShipChatWidget.config.disableErrorAlert   | Optional | Disables error alerts if no URL is set, if the request fails, etc. Defaults to `false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| window.buildShipChatWidget.config.closeOnOutsideClick | Optional | Closes the widget when the user clicks outside of the widget body. If set to `false`, you will need to use the `close()` method (provided in the `window.buildShipChatWidget` object) to be able to close the widget programmatically (for example, by attaching it to a button). Defaults to `true`.                                                                                                                                                                                                                                                                                                                                                                                         |
-| window.buildShipChatWidget.config.openOnLoad          | Optional | Automatically opens the widget when the page finishes loading (requires a button with the `data-buildship-chat-widget-button` attribute to be present on the page). Defaults to `false`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| window.buildShipChatWidget.config.responseIsAStream   | Optional | If set to `true`, the widget will expect the response to be streamed back from the endpoint. The endpoint must respond with a series of chunks that finally add up to the endpoint's response. The widget will aggregate these chunks as they're received and display and update the message, finally ending with the full response. Learn more [here](#streamed-responses). Defaults to `false`.                                                                                                                                                                                                                                                                                             |
+| Property                                              | Type     | Description |
+| ----------------------------------------------------- | -------- | ----------- |
+| `window.buildShipChatWidget.config.url` | Required | Endpoint that receives the chat POST request. |
+| `window.buildShipChatWidget.config.threadId` | Optional | Conversation identifier. Defaults to the widget's session cookie value when present. If you do not set it, the widget starts without a thread ID and can adopt one returned by your backend. |
+| `window.buildShipChatWidget.config.responseIsAStream` | Optional | Whether the backend response is streamed. Defaults to `true`. See [Streamed responses](#streamed-responses). |
+| `window.buildShipChatWidget.config.user` | Optional | Arbitrary user metadata sent with each request. |
+| `window.buildShipChatWidget.config.widgetTitle` | Optional | Header title. Defaults to `Chatbot`. |
+| `window.buildShipChatWidget.config.greetingMessage` | Optional | Initial system message rendered inside the conversation when the widget opens. Default: no greeting message. |
+| `window.buildShipChatWidget.config.disableErrorAlert` | Optional | Disables built-in alert popups for missing URL, failed requests, and similar runtime errors. Defaults to `false`. |
+| `window.buildShipChatWidget.config.closeOnOutsideClick` | Optional | Adds a backdrop and lets users close the widget by clicking outside of it. Defaults to `false`. |
+| `window.buildShipChatWidget.config.openOnLoad` | Optional | Opens the widget on page load. Requires an element with the `data-chat-widget-button` attribute so the widget can anchor itself. Defaults to `false`. |
+| `window.buildShipChatWidget.config.linkTarget` | Optional | Target used for links rendered inside chat messages, for example `self` or `blank`. Defaults to `self`. |
+| `window.buildShipChatWidget.config.urlFetchThreadHistory` | Optional | POST endpoint used to preload an existing conversation when a `threadId` is already known. |
+| `window.buildShipChatWidget.config.urlFetchUpdateThreadHistory` | Optional | POST endpoint used to sync updated thread history back to your backend. |
+| `window.buildShipChatWidget.config.addClearChat` | Optional | Shows the clear-chat control in the widget header. Defaults to `false`. |
+| `window.buildShipChatWidget.config.privacyInfoLinkText` | Optional | Label of the privacy link shown in a fresh conversation. Defaults to `Infos zum Datenschutz`. |
+| `window.buildShipChatWidget.config.privacyNoticeText` | Optional | Privacy notice content rendered inside the widget. Defaults to `Bitte geben Sie keine sensiblen Daten ein.` |
+| `window.buildShipChatWidget.config.launcher` | Optional | Floating launcher configuration. See [Launcher configuration](#launcher-configuration). |
+| `window.buildShipChatWidget.config.persistOpenState` | Optional | Persists whether the widget was pinned open across reloads. Defaults to `false`. |
+| `window.buildShipChatWidget.config.collapseTabLabel` | Optional | Accessible label and visible text for the collapse tab. Defaults to `Hide chatbot`. |
+| `window.buildShipChatWidget.config.hideTargets` | Optional | Hides selected DOM elements while the widget is open or the launcher is visible. See [Hide targets](#hide-targets). |
+
+#### Modern configuration example
+
+```html
+<button data-chat-widget-button>Chat with us</button>
+
+<script>
+  window.addEventListener("load", () => {
+    window.buildShipChatWidget.config.url =
+      "https://<project_id>.buildship.run/chat/....";
+    window.buildShipChatWidget.config.widgetTitle = "Support";
+    window.buildShipChatWidget.config.greetingMessage =
+      "Hello! How can we help?";
+    window.buildShipChatWidget.config.responseIsAStream = true;
+    window.buildShipChatWidget.config.linkTarget = "blank";
+    window.buildShipChatWidget.config.openOnLoad = false;
+    window.buildShipChatWidget.config.persistOpenState = true;
+    window.buildShipChatWidget.config.addClearChat = true;
+    window.buildShipChatWidget.config.urlFetchThreadHistory =
+      "https://<project_id>.buildship.run/thread-history/load";
+    window.buildShipChatWidget.config.urlFetchUpdateThreadHistory =
+      "https://<project_id>.buildship.run/thread-history/update";
+    window.buildShipChatWidget.config.privacyInfoLinkText = "Privacy Notice";
+    window.buildShipChatWidget.config.privacyNoticeText =
+      "Please do not enter any sensitive data.";
+    window.buildShipChatWidget.config.hideTargets = {
+      ids: ["site-header-phone"],
+      classes: ["hide-when-chat-is-visible"],
+    };
+    window.buildShipChatWidget.config.launcher = {
+      enabled: true,
+      text: "Chat",
+      ariaLabel: "Open support chat",
+      showGreeting: true,
+      greetingText: "Hi, how can I help you?",
+      rememberVisibility: true,
+      openTriggerClass: "chat-widget-open-trigger",
+      restrictToPaths: ["/", "/help/*"],
+      hideOnPaths: ["/checkout", "/help/internal/*"],
+      placement: {
+        bottom: "32px",
+        right: "32px",
+      },
+    };
+  });
+</script>
+```
+
+#### Launcher configuration
+
+Use `window.buildShipChatWidget.config.launcher` to enable a floating launcher button in addition to the regular `[data-chat-widget-button]` trigger.
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `enabled` | `boolean` | Enables the floating launcher. Defaults to `false`. |
+| `text` | `string` | Visible launcher label. Defaults to `Chat`. |
+| `ariaLabel` | `string` | Accessible label for the launcher button. Defaults to `Open chatbot`. |
+| `placement` | `object` | Optional offsets for `top`, `right`, `bottom`, and `left`. Defaults to `bottom: "2rem"` and `right: "2rem"`. |
+| `showGreeting` | `boolean` | Controls the small greeting bubble next to the launcher. Defaults to `true`. |
+| `greetingText` | `string` | Greeting bubble text. Defaults to `Hi, how can I help you?`. |
+| `rememberVisibility` | `boolean` | Persists forced launcher visibility after the user has interacted with the widget. Defaults to `true`. |
+| `openTriggerClass` | `string` | CSS class for external elements that should open the widget when clicked. Defaults to `chat-widget-open-trigger`. |
+| `restrictToPaths` | `string[]` | Only show the launcher on matching paths. Default: `[]`. |
+| `hideOnPaths` | `string[]` | Hide the launcher on matching paths. Default: `[]`. |
+
+Launcher path rules:
+
+- `*` matches all pages.
+- Exact matches such as `/contact` are supported.
+- Prefix matches such as `/docs/*` are supported.
+- Full URLs are accepted and matched by their pathname.
+- If both `restrictToPaths` and `hideOnPaths` match the current page, `hideOnPaths` wins.
+- If `rememberVisibility` is enabled, launcher visibility forced by prior interaction overrides path filters on later reloads.
+- Elements using `openTriggerClass` are also hidden and ignored on pages excluded by the path filters.
+
+Examples:
+
+```js
+window.buildShipChatWidget.config.launcher = {
+  enabled: true,
+  restrictToPaths: ["/", "/contact", "/docs/*"],
+};
+```
+
+```js
+window.buildShipChatWidget.config.launcher = {
+  enabled: true,
+  hideOnPaths: ["/checkout", "/legal/*"],
+};
+```
+
+```js
+window.buildShipChatWidget.config.launcher = {
+  enabled: true,
+  restrictToPaths: ["/docs/*"],
+  hideOnPaths: ["/docs/private/*"],
+};
+```
+
+#### Conversation history and reset behavior
+
+- If `threadId` and `urlFetchThreadHistory` are set, the widget preloads the existing thread history before opening and injects those messages into the UI.
+- If `urlFetchUpdateThreadHistory` is set, new messages can be synced back to your backend as the in-memory thread history is updated.
+- If `persistOpenState` is enabled, the widget remembers whether the user pinned it open and can reopen automatically after reload.
+- If `addClearChat` is enabled, the header shows a clear button that clears the stored conversation state, resets the local `threadId`, clears the session cookie, removes prefetched messages, and restores the initial greeting/privacy state.
+
+#### Privacy and auxiliary UI behavior
+
+- `privacyInfoLinkText` controls the link text shown for a fresh conversation before the chat becomes active.
+- `privacyNoticeText` controls the inline privacy notice displayed inside the widget.
+- Once the user starts a conversation or a thread is already active, the privacy link is hidden.
+- If `addClearChat` is enabled, the header also exposes a privacy info toggle so users can reopen the privacy notice after it has been dismissed.
+
+#### Hide targets
+
+Use `window.buildShipChatWidget.config.hideTargets` to temporarily hide existing DOM elements while the widget is open or while the launcher is visible.
+
+```js
+window.buildShipChatWidget.config.hideTargets = {
+  ids: ["header-phone"],
+  classes: ["hide-when-chat"],
+};
+```
+
+- `ids` hides specific elements by `id`.
+- `classes` hides all matching elements by class name.
+- The widget restores the previous inline `display` value when those elements become visible again.
 
 #### Customizing the widget's appearance (optional)
 
@@ -173,7 +304,7 @@ The font is inherited from the body.
 
 ## How it works
 
-When the script is loaded, it looks for any elements with the `data-buildship-chat-widget-button` attribute and opens the widget when any of those elements are clicked.
+When the script is loaded, it looks for an element with the `data-chat-widget-button` attribute and uses it as the standard trigger for opening the widget.
 
 In addition to the `config` object, the `window.buildShipChatWidget` object also exposes the `open()`, `close()` and `init()` methods, which can be called directly.
 
