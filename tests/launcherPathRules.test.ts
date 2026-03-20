@@ -7,7 +7,7 @@ import {
   normalizePath,
   pathMatchesRule,
   shouldDisplayLauncherForPath,
-} from "../src/launcherPathRules.ts";
+} from "./launcherPathRules.ts";
 
 test("normalizeLauncherPathRules trims values and removes empty entries", () => {
   assert.deepEqual(normalizeLauncherPathRules([" /docs/* ", "", "   ", "/foo"]), [

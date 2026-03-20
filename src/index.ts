@@ -2,33 +2,55 @@ import { computePosition, flip, shift, autoUpdate } from "@floating-ui/dom";
 import { createFocusTrap } from "focus-trap";
 import { marked } from "marked";
 
+import {
+  DOCUMENT_LAUNCHER_VISIBLE_CLASS,
+  DOCUMENT_OPEN_CLASS,
+  HIDE_TARGET_DATA_ATTRIBUTE,
+  WIDGET_BACKDROP_ID,
+  WIDGET_CLEAR_BUTTON_ID,
+  WIDGET_COLLAPSE_TAB_ID,
+  WIDGET_CONTAINER_ID,
+  WIDGET_LAUNCHER_BADGE_CLASS,
+  WIDGET_LAUNCHER_GREETING_ID,
+  WIDGET_LAUNCHER_ID,
+  WIDGET_MESSAGES_HISTORY_CONTAINER_ID,
+  WIDGET_PRIVACY_HEADER_TRIGGER_ID,
+  WIDGET_PRIVACY_LINK_ID,
+  WIDGET_PRIVACY_NOTICE_CLOSE_ID,
+  WIDGET_PRIVACY_NOTICE_ID,
+  WIDGET_PRIVACY_NOTICE_TEXT_ID,
+  WIDGET_THINKING_BUBBLE_ID,
+} from "./dom/constants";
+import { formatMessageTimestamp, getMessageElementId } from "./messageRendering";
+import {
+  consumeStreamChunk,
+  createAsyncLatestValueScheduler,
+  createStreamAccumulator,
+} from "./streaming";
+import {
+  clearSessionCookie,
+  getCookieValue,
+  readBooleanFromStorage,
+  removeStorageItem,
+  setBooleanInStorage,
+  setSessionCookie,
+  THREAD_ID_COOKIE_NAME,
+} from "./storage";
+import {
+  appendThreadHistoryEntry,
+  mapPrefetchedThreadMessages,
+  normalizeThreadHistoryRaw,
+  type ChatRole,
+  type ThreadHistoryRawMessage,
+} from "./threadHistory";
+import { createInitialWidgetState } from "./widgetState";
 import { widgetHTML } from "./widgetHtmlString";
 import css from "./widget.css";
 import {
   isLauncherHiddenByPathFilters as isLauncherHiddenByPathFiltersForPath,
   normalizeLauncherPathRules,
   shouldDisplayLauncherForPath,
-} from "./launcherPathRules";
-
-const WIDGET_BACKDROP_ID = "chat-widget__backdrop";
-const WIDGET_CONTAINER_ID = "chat-widget__container";
-const WIDGET_MESSAGES_HISTORY_CONTAINER_ID =
-  "chat-widget__messages_history";
-const WIDGET_THINKING_BUBBLE_ID = "chat-widget__thinking_bubble";
-const WIDGET_CLEAR_BUTTON_ID = "chat-widget__clear";
-const WIDGET_COLLAPSE_TAB_ID = "chat-widget__collapse-tab";
-const WIDGET_PRIVACY_NOTICE_ID = "chat-widget__privacy_notice";
-const WIDGET_PRIVACY_NOTICE_TEXT_ID = "chat-widget__privacy_notice_text";
-const WIDGET_PRIVACY_NOTICE_CLOSE_ID = "chat-widget__privacy_notice_close";
-const WIDGET_PRIVACY_LINK_ID = "chat-widget__privacy_link";
-const WIDGET_PRIVACY_HEADER_TRIGGER_ID = "chat-widget__privacy_trigger";
-const WIDGET_LAUNCHER_ID = "chat-widget__launcher";
-const WIDGET_LAUNCHER_BADGE_CLASS = "chat-widget__launcher-badge";
-const WIDGET_LAUNCHER_GREETING_ID = "chat-widget__launcher-greeting";
-const DOCUMENT_OPEN_CLASS = "chat-widget--open";
-const DOCUMENT_LAUNCHER_VISIBLE_CLASS =
-  "chat-widget--launcher-visible";
-const HIDE_TARGET_DATA_ATTRIBUTE = "data-chat-widget-hidden";
+} from "../tests/launcherPathRules";
 const STORAGE_KEYS = {
   pinnedOpen: "chat-widget:pinned-open",
   launcherForced: "chat-widget:launcher-forced",
@@ -37,33 +59,6 @@ const STORAGE_KEYS = {
 };
 const DEFAULT_LAUNCHER_GREETING_TEXT =
   "Hi, how can I help you?";
-
-
-// Functions to handle thread id as session cookie
-const THREAD_ID_COOKIE_NAME = "chatThreadID";
-
-function getCookieValue(name: string): string | null {
-  const cookies = document.cookie ? document.cookie.split(";") : [];
-  for (const cookie of cookies) {
-    const [cookieName, ...rest] = cookie.split("=");
-    if (cookieName.trim() === name) {
-      return decodeURIComponent(rest.join("="));
-    }
-  }
-
-  return null;
-}
-
-function setSessionCookie(value: string) {
-  if (value) {
-    document.cookie = `${THREAD_ID_COOKIE_NAME}=${encodeURIComponent(value)}; path=/`;
-  }
-}
-function clearSessionCookie() {
-  document.cookie = `${THREAD_ID_COOKIE_NAME}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0`;
-}
-
-// end session cookie
 
 // Allow launcher offsets per side so users can fine tune button placement.
 type LauncherPlacement = Partial<
@@ -227,47 +222,10 @@ function getNormalizedHideTargets(): NormalizedHideTargets {
   };
 }
 
-// Basic storage helpers handle private mode/SSR failures gracefully.
-function getStorageItem(key: string) {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function setStorageItem(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // ignore
-  }
-}
-
-function removeStorageItem(key: string) {
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // ignore
-  }
-}
-
 function clearWidgetConversationStorage() {
   removeStorageItem(STORAGE_KEYS.activeChat);
   removeStorageItem(STORAGE_KEYS.pinnedOpen);
   removeStorageItem(STORAGE_KEYS.launcherForced);
-}
-
-function readBooleanFromStorage(key: string) {
-  return getStorageItem(key) === "true";
-}
-
-function setBooleanInStorage(key: string, value: boolean) {
-  if (value) {
-    setStorageItem(key, "true");
-  } else {
-    removeStorageItem(key);
-  }
 }
 
 const hiddenElements = new Set<HTMLElement>();
@@ -322,45 +280,38 @@ function toggleHideTargets(shouldHide: boolean) {
 }
 
 function updateHideTargetsVisibility() {
-  const shouldHide = isWidgetOpen || isLauncherCurrentlyVisible;
+  const shouldHide = state.isWidgetOpen || state.isLauncherCurrentlyVisible;
   toggleHideTargets(shouldHide);
 }
 
-let pinnedOpenPreference = false;
-let pinnedOpenPreferenceInitialized = false;
 // Determines if the widget should reopen automatically on navigation reloads.
 function getPinnedOpenPreference() {
   if (
-    !pinnedOpenPreferenceInitialized &&
+    !state.pinnedOpenPreferenceInitialized &&
     isPersistOpenStateEnabled()
   ) {
-    pinnedOpenPreference = readBooleanFromStorage(STORAGE_KEYS.pinnedOpen);
-    pinnedOpenPreferenceInitialized = true;
+    state.pinnedOpenPreference = readBooleanFromStorage(STORAGE_KEYS.pinnedOpen);
+    state.pinnedOpenPreferenceInitialized = true;
   }
-  return pinnedOpenPreference;
+  return state.pinnedOpenPreference;
 }
 function setPinnedOpenState(value: boolean) {
-  pinnedOpenPreference = value;
+  state.pinnedOpenPreference = value;
   if (!isPersistOpenStateEnabled()) {
     return;
   }
-  pinnedOpenPreferenceInitialized = true;
+  state.pinnedOpenPreferenceInitialized = true;
   setBooleanInStorage(STORAGE_KEYS.pinnedOpen, value);
 }
-
-let launcherVisibilityForced =
-  (getNormalizedLauncherConfig().rememberVisibility &&
-    readBooleanFromStorage(STORAGE_KEYS.launcherForced)) ||
-  false;
 
 function forceLauncherVisibility() {
   if (
     !getNormalizedLauncherConfig().rememberVisibility ||
-    launcherVisibilityForced
+    state.launcherVisibilityForced
   ) {
     return;
   }
-  launcherVisibilityForced = true;
+  state.launcherVisibilityForced = true;
   setBooleanInStorage(STORAGE_KEYS.launcherForced, true);
 }
 
@@ -369,15 +320,19 @@ const initialActiveChatState =
 if (initialActiveChatState) {
   setBooleanInStorage(STORAGE_KEYS.activeChat, true);
 }
-let hasActiveChat = initialActiveChatState;
+const state = createInitialWidgetState({
+  hasActiveChat: initialActiveChatState,
+  launcherVisibilityForced:
+    (getNormalizedLauncherConfig().rememberVisibility &&
+      readBooleanFromStorage(STORAGE_KEYS.launcherForced)) ||
+    false,
+  launcherGreetingDismissed: readBooleanFromStorage(
+    STORAGE_KEYS.launcherGreetingDismissed
+  ),
+});
 
-let isWidgetOpen = false;
 let launcherElement: HTMLButtonElement | null = null;
 let launcherGreetingElement: HTMLDivElement | null = null;
-let isLauncherCurrentlyVisible = false;
-let launcherGreetingDismissed = readBooleanFromStorage(
-  STORAGE_KEYS.launcherGreetingDismissed
-);
 let launcherOpenTriggerListenerRegistered = false;
 const LAUNCHER_OPEN_TRIGGER_HIDDEN_ATTRIBUTE =
   "data-chat-widget-launcher-open-trigger-hidden";
@@ -461,7 +416,7 @@ function shouldDisplayLauncher() {
   const normalized = getNormalizedLauncherConfig();
   return shouldDisplayLauncherForPath({
     enabled: normalized.enabled,
-    launcherVisibilityForced,
+    launcherVisibilityForced: state.launcherVisibilityForced,
     restrictToPaths: getLauncherRestrictToPaths(),
     hideOnPaths: getLauncherHideOnPaths(),
     currentPath: window.location?.pathname || "/",
@@ -472,7 +427,7 @@ function isLauncherHiddenByPathFilters() {
   const normalized = getNormalizedLauncherConfig();
   return isLauncherHiddenByPathFiltersForPath({
     enabled: normalized.enabled,
-    launcherVisibilityForced,
+    launcherVisibilityForced: state.launcherVisibilityForced,
     restrictToPaths: getLauncherRestrictToPaths(),
     hideOnPaths: getLauncherHideOnPaths(),
     currentPath: window.location?.pathname || "/",
@@ -481,20 +436,20 @@ function isLauncherHiddenByPathFilters() {
 
 function updateLauncherVisibility() {
   if (!launcherElement) {
-    isLauncherCurrentlyVisible = false;
+    state.isLauncherCurrentlyVisible = false;
     updateLauncherGreetingVisibility();
     updateHideTargetsVisibility();
     updateLauncherOpenTriggerVisibility();
     return;
   }
   // Hide the launcher while the chat drawer is visible to avoid duplicate affordances.
-  const shouldBeVisible = shouldDisplayLauncher() && !isWidgetOpen;
+  const shouldBeVisible = shouldDisplayLauncher() && !state.isWidgetOpen;
   launcherElement.style.display = shouldBeVisible ? "" : "none";
   document.documentElement.classList.toggle(
     DOCUMENT_LAUNCHER_VISIBLE_CLASS,
     shouldBeVisible
   );
-  isLauncherCurrentlyVisible = shouldBeVisible;
+  state.isLauncherCurrentlyVisible = shouldBeVisible;
   updateLauncherGreetingVisibility();
   updateHideTargetsVisibility();
   updateLauncherOpenTriggerVisibility();
@@ -522,19 +477,19 @@ function applyActiveStateToLauncher() {
   // Toggle the badge whenever a conversation exists so the indicator persists.
   launcherElement.classList.toggle(
     "chat-widget__launcher--active",
-    hasActiveChat
+    state.hasActiveChat
   );
 }
 
 function markChatAsActive() {
-  hasActiveChat = true;
+  state.hasActiveChat = true;
   setBooleanInStorage(STORAGE_KEYS.activeChat, true);
   applyActiveStateToLauncher();
   updatePrivacyLinkVisibility();
 }
 
 function resetActiveChatIndicator() {
-  hasActiveChat = false;
+  state.hasActiveChat = false;
   setBooleanInStorage(STORAGE_KEYS.activeChat, false);
   applyActiveStateToLauncher();
   updatePrivacyLinkVisibility();
@@ -543,7 +498,7 @@ function resetActiveChatIndicator() {
 function dismissLauncherGreeting(persist = true) {
   if (!launcherGreetingElement) {
     if (persist) {
-      launcherGreetingDismissed = true;
+      state.launcherGreetingDismissed = true;
       setBooleanInStorage(STORAGE_KEYS.launcherGreetingDismissed, true);
     }
     return;
@@ -551,7 +506,7 @@ function dismissLauncherGreeting(persist = true) {
 
   launcherGreetingElement.style.display = "none";
   if (persist) {
-    launcherGreetingDismissed = true;
+    state.launcherGreetingDismissed = true;
     setBooleanInStorage(STORAGE_KEYS.launcherGreetingDismissed, true);
   }
 }
@@ -591,9 +546,9 @@ function updateLauncherGreetingVisibility() {
   const shouldShowGreeting =
     normalized.showGreeting &&
     hasGreetingText &&
-    isLauncherCurrentlyVisible &&
-    !isWidgetOpen &&
-    !launcherGreetingDismissed;
+    state.isLauncherCurrentlyVisible &&
+    !state.isWidgetOpen &&
+    !state.launcherGreetingDismissed;
   launcherGreetingElement.style.display = shouldShowGreeting ? "block" : "none";
   if (shouldShowGreeting) {
     updateLauncherGreetingPlacement();
@@ -704,31 +659,35 @@ function handleCollapseTabClick(e: Event) {
 }
 
 function handleWidgetOpened() {
-  isWidgetOpen = true;
+  state.isWidgetOpen = true;
   document.documentElement.classList.add(DOCUMENT_OPEN_CLASS);
   forceLauncherVisibility();
   updateLauncherVisibility();
 }
 
 function handleWidgetClosed() {
-  isWidgetOpen = false;
+  state.isWidgetOpen = false;
   document.documentElement.classList.remove(DOCUMENT_OPEN_CLASS);
   updateLauncherVisibility();
 }
 
 let cleanup = () => {};
 
-// Holds preloaded messages so we can hydrate the UI on open.
-type PrefetchedThreadMessage = {
-  message: string;
-  timestamp: number;
-  from: "system" | "user";
+type WidgetElements = {
+  formElement: HTMLFormElement | null;
+  inputElement: HTMLTextAreaElement | null;
+  submitButton: HTMLButtonElement | null;
+  chatbotBody: HTMLElement | null;
+  privacyNotice: HTMLDivElement | null;
 };
 
-let prefetchedThreadMessages: PrefetchedThreadMessage[] = [];
-let prefetchedThreadMessagesPromise: Promise<void> | null = null;
-let prefetchedMessagesInjected = false;
-let privacyNoticeDismissed = false;
+const widgetElements: WidgetElements = {
+  formElement: null,
+  inputElement: null,
+  submitButton: null,
+  chatbotBody: null,
+  privacyNotice: null,
+};
 
 function getPrivacyInfoLinkText() {
   return config.privacyInfoLinkText?.trim() || "Privacy Notice";
@@ -742,18 +701,18 @@ function getPrivacyNoticeText() {
 }
 
 function hidePrivacyNotice(markDismissed = true) {
-  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  const privacyNotice = widgetElements.privacyNotice;
   if (!privacyNotice || privacyNotice.hidden) {
     containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
     return;
   }
   privacyNotice.hidden = true;
-  privacyNoticeDismissed = markDismissed;
+  state.privacyNoticeDismissed = markDismissed;
   containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
 }
 
 function maybeHidePrivacyNoticeForSpace() {
-  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  const privacyNotice = widgetElements.privacyNotice;
   if (!privacyNotice || privacyNotice.hidden) {
     containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
     return;
@@ -763,7 +722,7 @@ function maybeHidePrivacyNoticeForSpace() {
     `${privacyNotice.offsetHeight}px`
   );
 
-  const chatbotBody = document.getElementById("chat-widget__body");
+  const chatbotBody = widgetElements.chatbotBody;
   if (!chatbotBody) {
     return;
   }
@@ -776,12 +735,12 @@ function maybeHidePrivacyNoticeForSpace() {
 }
 
 function showPrivacyNotice() {
-  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  const privacyNotice = widgetElements.privacyNotice;
   if (!privacyNotice) {
     return;
   }
   privacyNotice.hidden = false;
-  privacyNoticeDismissed = false;
+  state.privacyNoticeDismissed = false;
   const privacyHeight = privacyNotice.offsetHeight;
   containerElement.style.setProperty(
     "--chat-widget-privacy-height",
@@ -796,7 +755,7 @@ function hasRenderedChatMessages() {
 
 function updatePrivacyLinkVisibility() {
   // Keep link visible only for a fresh conversation.
-  privacyLinkElement.hidden = hasActiveChat;
+  privacyLinkElement.hidden = state.hasActiveChat;
 }
 
 function handlePrivacyLinkClick(e: Event) {
@@ -811,7 +770,7 @@ function handlePrivacyNoticeCloseClick(e: Event) {
 
 function handlePrivacyHeaderTriggerClick(e: Event) {
   e.preventDefault();
-  const privacyNotice = document.getElementById(WIDGET_PRIVACY_NOTICE_ID);
+  const privacyNotice = widgetElements.privacyNotice;
   if (privacyNotice && !privacyNotice.hidden) {
     hidePrivacyNotice();
     return;
@@ -819,73 +778,16 @@ function handlePrivacyHeaderTriggerClick(e: Event) {
   showPrivacyNotice();
 }
 
-// Structure of a raw thread history message.
-type ThreadHistoryRawMessage = {
-  message: string;
-  timestamp: number;
-  from: "system" | "user";
-};
-
-// Structure of the raw thread history as stored/fetched from the server.
-type ThreadHistoryRaw = {
-  value?: {
-    data?: any[];
-  };
-  [key: string]: any;
-};
-
-// In-memory cache of the thread history raw messages.
-let THREAD_HISTORY_RAW: ThreadHistoryRaw = { value: { data: [] } };
-
-// Get the current thread history raw messages, ensuring structure is valid.
-function getThreadHistoryRawMessages(): any[] {
-  if (!THREAD_HISTORY_RAW || typeof THREAD_HISTORY_RAW !== "object") {
-    THREAD_HISTORY_RAW = { value: { data: [] } };
-  }
-  if (!THREAD_HISTORY_RAW.value || typeof THREAD_HISTORY_RAW.value !== "object") {
-    THREAD_HISTORY_RAW.value = { data: [] };
-  }
-  if (!Array.isArray(THREAD_HISTORY_RAW.value.data)) {
-    THREAD_HISTORY_RAW.value.data = [];
-  }
-  if (config.threadId) {
-    THREAD_HISTORY_RAW.threadId = config.threadId;
-  }
-  return THREAD_HISTORY_RAW.value!.data!;
-}
-
-// Convert a ThreadHistoryRawMessage to the format expected by the server.
-function convertToThreadHistoryRawEntry({
-  message,
-  timestamp,
-  from,
-}: ThreadHistoryRawMessage) {
-  return {
-    id: `local-${timestamp}-${from}`,
-    object: "thread.message",
-    created_at: Math.floor(timestamp / 1000),
-    role: from === "user" ? "user" : "assistant",
-    content: [
-      {
-        type: "text",
-        text: {
-          value: message,
-        },
-      },
-    ],
-  };
-}
-
 // Send updated thread history to server.used when new messages are added.
 async function appendToThreadHistoryRaw(
   entry: ThreadHistoryRawMessage,
   syncWithServer = false
 ) {
-  const messages = getThreadHistoryRawMessages();
-  messages.unshift(convertToThreadHistoryRawEntry(entry));
-  if (config.threadId) {
-    THREAD_HISTORY_RAW.threadId = config.threadId;
-  }
+  state.threadHistoryRaw = appendThreadHistoryEntry(
+    state.threadHistoryRaw,
+    entry,
+    config.threadId
+  );
 
   if (!syncWithServer) {
     return;
@@ -897,7 +799,7 @@ async function appendToThreadHistoryRaw(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(THREAD_HISTORY_RAW),
+      body: JSON.stringify(state.threadHistoryRaw),
     });
 
   } catch (error) {
@@ -907,25 +809,6 @@ async function appendToThreadHistoryRaw(
     );
   }
     
-}
-
-// Map API roles to widget message variants.
-function mapChatRole(role: unknown): "system" | "user" {
-  return role === "user" ? "user" : "system";
-}
-
-// Convert timestamps from the API to millisecond precision.
-function normalizeTimestamp(input: unknown): number {
-  if (typeof input === "number" && Number.isFinite(input)) {
-    return input > 1_000_000_000_000 ? input : input * 1000;
-  }
-  if (typeof input === "string") {
-    const numeric = Number(input);
-    if (Number.isFinite(numeric)) {
-      return numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
-    }
-  }
-  return Date.now();
 }
 
 // Load historical messages for an existing thread id.
@@ -946,50 +829,26 @@ async function fetchThreadMessages(url: string, threadId: string) {
     }
 
     const payload = await response.json();
-    THREAD_HISTORY_RAW = payload;
-    const rawMessages: any[] = Array.isArray(payload?.value?.data)
-      ? payload.value.data
+    state.threadHistoryRaw = normalizeThreadHistoryRaw(payload, threadId);
+    const rawMessages: unknown[] = Array.isArray(state.threadHistoryRaw?.value?.data)
+      ? state.threadHistoryRaw.value!.data!
       : [];
 
     if (threadId !== config.threadId) {
       return;
     }
     // Parse and store prefetched messages.
-    prefetchedThreadMessages = rawMessages
-      .map((item) => {
-        if (!item || typeof item !== "object") {
-          return null;
-        }
-        const contentEntry = Array.isArray((item as any).content)
-          ? (item as any).content.find(
-              (part: any) => typeof part?.text?.value === "string"
-            )
-          : undefined;
-        const textValue = contentEntry?.text?.value;
-        if (typeof textValue !== "string") {
-          return null;
-        }
-
-        return {
-          message: textValue,
-          timestamp: normalizeTimestamp((item as any).created_at),
-          from: mapChatRole((item as any).role),
-        };
-      })
-      .filter(
-        (entry): entry is PrefetchedThreadMessage => entry !== null
-      )
-      .sort((a, b) => a.timestamp - b.timestamp);
+    state.prefetchedThreadMessages = mapPrefetchedThreadMessages(rawMessages);
   } catch (error) {
     console.error("BuildShip Chat Widget: Failed to load thread history", error);
-    prefetchedThreadMessages = [];
+    state.prefetchedThreadMessages = [];
     throw error;
   }
 }
 
 // Render prefetched messages once the widget container exists.
 async function injectPrefetchedThreadMessages() {
-  if (prefetchedMessagesInjected) {
+  if (state.prefetchedMessagesInjected) {
     return;
   }
 
@@ -997,23 +856,23 @@ async function injectPrefetchedThreadMessages() {
     return;
   }
 
-  if (prefetchedThreadMessagesPromise) {
+  if (state.prefetchedThreadMessagesPromise) {
     try {
-      await prefetchedThreadMessagesPromise;
+      await state.prefetchedThreadMessagesPromise;
     } catch {
-      prefetchedMessagesInjected = true;
+      state.prefetchedMessagesInjected = true;
       return;
     }
   }
 
-  if (!prefetchedThreadMessages.length) {
-    prefetchedMessagesInjected = true;
+  if (!state.prefetchedThreadMessages.length) {
+    state.prefetchedMessagesInjected = true;
     return;
   }
 
-  prefetchedMessagesInjected = true;
-  for (const message of prefetchedThreadMessages) {
-    const messageId = `chat-widget__message--${message.from}--${message.timestamp}`;
+  state.prefetchedMessagesInjected = true;
+  for (const message of state.prefetchedThreadMessages) {
+    const messageId = getMessageElementId(message.from, message.timestamp);
     if (messagesHistory.querySelector(`#${messageId}`)) {
       continue;
     }
@@ -1035,12 +894,12 @@ async function handleClearButtonClick(e: Event) {
     clearSessionCookie();         // Clear session cookie
     clearWidgetConversationStorage(); // Clear only conversation state
     setPinnedOpenState(false);
-    launcherVisibilityForced = false;
-    THREAD_HISTORY_RAW = { value: { data: [] } }; // Clear in-memory thread history
+    state.launcherVisibilityForced = false;
+    state.threadHistoryRaw = { value: { data: [] } };
     config.threadId = null;
-    prefetchedThreadMessages = [];
-    prefetchedThreadMessagesPromise = null;
-    prefetchedMessagesInjected = false;
+    state.prefetchedThreadMessages = [];
+    state.prefetchedThreadMessagesPromise = null;
+    state.prefetchedMessagesInjected = false;
 
     if (thinkingBubble.parentElement === messagesHistory) {
       thinkingBubble.remove();
@@ -1049,7 +908,7 @@ async function handleClearButtonClick(e: Event) {
     messagesHistory.innerHTML = "";
     messagesHistory.appendChild(privacyLinkElement);
     privacyLinkElement.textContent = getPrivacyInfoLinkText();
-    privacyNoticeDismissed = false;
+    state.privacyNoticeDismissed = false;
     updatePrivacyLinkVisibility();
     hidePrivacyNotice(false);
 
@@ -1058,10 +917,7 @@ async function handleClearButtonClick(e: Event) {
     }
     resetActiveChatIndicator();
 
-    const inputElement = document.getElementById(
-      "chat-widget__input"
-    ) as HTMLTextAreaElement | null;
-    inputElement?.focus();
+    widgetElements.inputElement?.focus();
   } finally {
     button?.removeAttribute("disabled");
   }
@@ -1088,10 +944,10 @@ async function init() {
   if (
     config.threadId &&
     config.urlFetchThreadHistory &&
-    !prefetchedThreadMessagesPromise
+    !state.prefetchedThreadMessagesPromise
   ) {
     // Prefetch thread history early when a thread id is known.
-    prefetchedThreadMessagesPromise = fetchThreadMessages(
+    state.prefetchedThreadMessagesPromise = fetchThreadMessages(
       config.urlFetchThreadHistory,
       config.threadId
     );
@@ -1102,9 +958,9 @@ async function init() {
     config.openOnLoad ||
     (shouldPersistOpen && getPinnedOpenPreference())
   ) {
-    if (prefetchedThreadMessagesPromise) {
+    if (state.prefetchedThreadMessagesPromise) {
       try {
-        await prefetchedThreadMessagesPromise;
+        await state.prefetchedThreadMessagesPromise;
       } catch {
         console.error("continue opening even if history failed to load");
         // continue opening even if history failed to load
@@ -1149,7 +1005,7 @@ const trap = createFocusTrap(containerElement, {
 });
 
 async function open(e: Event) {
-  if (isWidgetOpen) {
+  if (state.isWidgetOpen) {
     return;
   }
 
@@ -1171,6 +1027,9 @@ async function open(e: Event) {
   const submitButton = document.getElementById(
     "chat-widget__submit"
   ) as HTMLButtonElement | null;
+  widgetElements.formElement = formElement;
+  widgetElements.inputElement = inputElement;
+  widgetElements.submitButton = submitButton;
 
   if (inputElement && formElement) {
     const maxHeight = 160;
@@ -1209,7 +1068,7 @@ async function open(e: Event) {
 
     inputElement.addEventListener("input", adjustInputHeight);
     inputElement.addEventListener("input", () => {
-      if (!hasActiveChat && inputElement.value.trim()) {
+      if (!state.hasActiveChat && inputElement.value.trim()) {
         markChatAsActive();
         setPinnedOpenState(true);
         forceLauncherVisibility();
@@ -1276,6 +1135,9 @@ async function open(e: Event) {
     `#${WIDGET_PRIVACY_NOTICE_CLOSE_ID}`
   ) as HTMLButtonElement | null;
 
+  widgetElements.privacyNotice =
+    privacyNotice instanceof HTMLDivElement ? privacyNotice : null;
+
   if (privacyNoticeText) {
     privacyNoticeText.innerHTML = getPrivacyNoticeText();
   }
@@ -1285,7 +1147,7 @@ async function open(e: Event) {
     privacyNoticeClose.addEventListener("click", handlePrivacyNoticeCloseClick);
   }
 
-  privacyNoticeDismissed = false;
+  state.privacyNoticeDismissed = false;
   privacyNotice?.setAttribute("hidden", "");
   containerElement.style.setProperty("--chat-widget-privacy-height", "0px");
 
@@ -1364,6 +1226,7 @@ async function open(e: Event) {
 
   // Add message history to chatbot body
   const chatbotBody = document.getElementById("chat-widget__body")!;
+  widgetElements.chatbotBody = chatbotBody;
   chatbotBody.prepend(messagesHistory);
   if (!privacyLinkElement.parentElement) {
     messagesHistory.appendChild(privacyLinkElement);
@@ -1409,12 +1272,12 @@ function close() {
 async function createNewMessageEntry(
   message: string,
   timestamp: number,
-  from: "system" | "user"
+  from: ChatRole
 ) {
   const messageElement = document.createElement("div");
   messageElement.classList.add("chat-widget__message");
   messageElement.classList.add(`chat-widget__message--${from}`);
-  messageElement.id = `chat-widget__message--${from}--${timestamp}`;
+  messageElement.id = getMessageElementId(from, timestamp);
 
   const messageText = document.createElement("p");
   messageText.innerHTML = await marked(message, { renderer });
@@ -1422,88 +1285,17 @@ async function createNewMessageEntry(
 
   const messageTimestamp = document.createElement("p");
   messageTimestamp.classList.add("chat-widget__message-timestamp");
-  messageTimestamp.textContent =
-    ("0" + new Date(timestamp).getHours()).slice(-2) + // Hours (padded with 0 if needed)
-    ":" +
-    ("0" + new Date(timestamp).getMinutes()).slice(-2); // Minutes (padded with 0 if needed)
+  messageTimestamp.textContent = formatMessageTimestamp(timestamp);
   messageElement.appendChild(messageTimestamp);
 
   messagesHistory.prepend(messageElement);
   updatePrivacyLinkVisibility();
-  if (!privacyNoticeDismissed) {
+  if (!state.privacyNoticeDismissed) {
     maybeHidePrivacyNoticeForSpace();
   }
 
 }
 
-/*
-// Handle standard (non-streamed) response
-const handleStandardResponse = async (res: Response) => {
-  if (res.ok) {
-    const {
-      message: responseMessage,
-      threadId: responseThreadId,
-    }: {
-      message: string | undefined;
-      threadId: string | undefined;
-    } = await res.json();
-
-    if (typeof responseThreadId !== "string") {
-      console.error("BuildShip Chat Widget: Server error", res);
-      if (!config.disableErrorAlert)
-        alert(
-          `Received an OK response but "threadId" was of incompatible type (expected 'string', received '${typeof responseThreadId}'). Please make sure the API response is configured correctly.
-
-You can learn more here: https://github.com/rowyio/chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
-        );
-      return;
-    }
-
-    if (typeof responseMessage !== "string") {
-      console.error("BuildShip Chat Widget: Server error", res);
-      if (!config.disableErrorAlert)
-        alert(
-          `Received an OK response but "message" was of incompatible type (expected 'string', received '${typeof responseMessage}'). Please make sure the API response is configured correctly.
-
-You can learn more here: https://github.com/rowyio/chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
-        );
-      return;
-    }
-
-    if (!responseMessage && responseMessage !== "") {
-      console.error("BuildShip Chat Widget: Server error", res);
-      if (!config.disableErrorAlert)
-        alert(
-          `Received an OK response but no message was found. Please make sure the API response is configured correctly. You can learn more here:\n\nhttps://github.com/rowyio/chat-widget?tab=readme-ov-file#connecting-the-widget-to-your-buildship-workflow`
-        );
-      return;
-    }
-
-    await createNewMessageEntry(responseMessage, Date.now(), "system");
-    config.threadId = config.threadId ?? responseThreadId ?? null;
-	
-    if (config.threadId) {
-      markChatAsActive();
-      // Set threadId from config to session cookie
-	    setSessionCookie(config.threadId); 
-      // Add new message to thread history cache
-      await appendToThreadHistoryRaw(
-        {
-          message: responseMessage,
-          timestamp: Date.now(),
-          from: "system",
-        },
-        true
-      ); 
-    }
-	
-  } else {
-    console.error("BuildShip Chat Widget: Server error", res);
-    if (!config.disableErrorAlert)
-      alert(`Could not send message: ${res.statusText}`);
-  }
-};
-*/
 
 function sanitizeResponseMessage(message: string) {
   return message.replace(/【[^】]*】/g, "");
@@ -1513,10 +1305,10 @@ function sanitizeResponseMessage(message: string) {
 async function streamResponseToMessageEntry(
   message: string,
   timestamp: number,
-  from: "system" | "user"
+  from: ChatRole
 ) {
   const existingMessageElement = messagesHistory.querySelector(
-    `#chat-widget__message--${from}--${timestamp}`
+    `#${getMessageElementId(from, timestamp)}`
   );
   if (existingMessageElement) {
     // If the message element already exists, update the text
@@ -1549,10 +1341,11 @@ const handleStreamedResponse = async (res: Response) => {
 
   const threadIdFromHeader = res.headers.get("x-thread-id");
   const reader = res.body.getReader();
-  let responseMessage = "";
-  let responseThreadId = "";
-  let responseMessageComplete = false;
-  let ts = Date.now();
+  let streamState = createStreamAccumulator();
+  const ts = Date.now();
+  const renderScheduler = createAsyncLatestValueScheduler<string>((message) =>
+    streamResponseToMessageEntry(message, ts, "system")
+  );
 
   while (true) {
     const { value, done } = await reader.read(); 
@@ -1561,28 +1354,13 @@ const handleStreamedResponse = async (res: Response) => {
     }
     const decoded = new TextDecoder().decode(value);
 
-    if (decoded.includes("\x1f")) {
-      // If the chunk contains the separator character, that marks the end of the message
-      // and the beginning of the threadId
-      const [message, threadId] = decoded.split("\x1f");
-      responseMessage += message;
-      responseThreadId += threadId;
-
-      responseMessageComplete = true;
-    } else {
-      if (responseMessageComplete) {
-        // If the message is complete, the chunk will be part of the threadId
-        responseThreadId += decoded;
-      } else {
-        // If the message is not complete yet, the chunk will be part of the message
-        responseMessage += decoded;
-      }
-    }
-    await streamResponseToMessageEntry(responseMessage, ts, "system");
+    streamState = consumeStreamChunk(streamState, decoded);
+    renderScheduler.schedule(streamState.responseMessage);
   }
+  await renderScheduler.flush();
 
   const fallbackResponseMessage = "Sorry, ich konnte deine Anfrage nicht vollständig verarbeiten. Probiere es bitte später erneut.";
-  let finalResponseMessage = responseMessage;
+  let finalResponseMessage = streamState.responseMessage;
   if (!finalResponseMessage.trim()) {
     finalResponseMessage = fallbackResponseMessage;
     await streamResponseToMessageEntry(finalResponseMessage, ts, "system");
@@ -1591,7 +1369,9 @@ const handleStreamedResponse = async (res: Response) => {
   config.threadId =
     config.threadId ??
     threadIdFromHeader ?? // If the threadId isn't set, use the one from the header
-    (responseThreadId !== "" ? responseThreadId : null); // If the threadId isn't set and one isn't included in the header, use the one from the response
+    (streamState.responseThreadId !== ""
+      ? streamState.responseThreadId
+      : null);
 	
   
   if (config.threadId) {
@@ -1622,7 +1402,7 @@ async function submit(e: Event) {
     return;
   }
 
-  const submitElement = document.getElementById(
+  const submitElement = widgetElements.submitButton ?? document.getElementById(
     "chat-widget__submit"
   )!;
   submitElement.setAttribute("disabled", "");
@@ -1669,9 +1449,7 @@ async function submit(e: Event) {
 
     if (config.responseIsAStream) {
       await handleStreamedResponse(response);
-    } /*else {
-      await handleStandardResponse(response);
-    }*/
+    }
   } catch (e: any) {
     thinkingBubble.remove();
     console.error("BuildShip Chat Widget:", e);

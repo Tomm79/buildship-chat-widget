@@ -31,7 +31,7 @@
     "build": "node ./generate-widget-html-string && microbundle --define process.env.NODE_ENV=production --css inline",
     "dev": "node ./generate-widget-html-string && microbundle watch --define process.env.NODE_ENV=production --css inline",
     "prepare": "node ./generate-widget-html-string && microbundle --define process.env.NODE_ENV=production --css inline",
-    "test": "node tests/launcherPathRules.test.ts"
+    "test": "node tests/all.test.ts"
   },
   "devDependencies": {
     "@floating-ui/dom": "^1.6.3",
