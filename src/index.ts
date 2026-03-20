@@ -35,6 +35,7 @@ import {
   setBooleanInStorage,
   setSessionCookie,
   THREAD_ID_COOKIE_NAME,
+  touchBooleanInStorage,
 } from "./storage";
 import {
   appendThreadHistoryEntry,
@@ -84,6 +85,10 @@ type HideTargetsConfig = {
   classes?: string[];
 };
 
+type StorageConfig = {
+  ttlDays?: number;
+};
+
 type NormalizedHideTargets = {
   ids: string[];
   classes: string[];
@@ -106,6 +111,7 @@ export type WidgetConfig = {
   privacyInfoLinkText?: string;
   privacyNoticeText?: string;
   launcher?: LauncherConfig;
+  storage?: StorageConfig;
   persistOpenState?: boolean;
   collapseTabLabel?: string;
   hideTargets?: HideTargetsConfig;
@@ -137,6 +143,7 @@ const config: WidgetConfig = {
   privacyInfoLinkText: "Infos zum Datenschutz",
   privacyNoticeText: "Bitte geben Sie keine sensiblen Daten ein.",
   launcher: undefined,
+  storage: undefined,
   persistOpenState: false,
   collapseTabLabel: "Hide chatbot",
   hideTargets: undefined,
@@ -153,6 +160,7 @@ const DEFAULT_LAUNCHER_TEXT = "Chat";
 const DEFAULT_LAUNCHER_ARIA_LABEL = "Open chatbot";
 const DEFAULT_LAUNCHER_OPEN_TRIGGER_CLASS = "chat-widget-open-trigger";
 const DEFAULT_COLLAPSE_TAB_LABEL = "Hide chatbot";
+const DEFAULT_STORAGE_TTL_DAYS = 1;
 
 // Internally we always resolve config to this explicit structure.
 type NormalizedLauncherConfig = {
@@ -210,6 +218,67 @@ function getCollapseTabLabel() {
 
 function isPersistOpenStateEnabled() {
   return Boolean(config.persistOpenState);
+}
+
+function getStorageTtlMs() {
+  const ttlDays = Number(config.storage?.ttlDays);
+  const normalizedTtlDays =
+    Number.isFinite(ttlDays) && ttlDays > 0 ? ttlDays : DEFAULT_STORAGE_TTL_DAYS;
+  return normalizedTtlDays * 24 * 60 * 60 * 1000;
+}
+
+function getStorageTtlSeconds() {
+  return Math.floor(getStorageTtlMs() / 1000);
+}
+
+type RefreshedPersistedState = {
+  activeChat: boolean;
+  launcherForced: boolean;
+  launcherGreetingDismissed: boolean;
+  pinnedOpen: boolean;
+};
+
+function refreshPersistedStateTtlOnLoad(): RefreshedPersistedState {
+  const ttlMs = getStorageTtlMs();
+  const refreshedState = {
+    activeChat: touchBooleanInStorage(STORAGE_KEYS.activeChat, ttlMs),
+    launcherForced: touchBooleanInStorage(STORAGE_KEYS.launcherForced, ttlMs),
+    launcherGreetingDismissed: touchBooleanInStorage(
+      STORAGE_KEYS.launcherGreetingDismissed,
+      ttlMs
+    ),
+    pinnedOpen: touchBooleanInStorage(STORAGE_KEYS.pinnedOpen, ttlMs),
+  };
+  if (config.threadId) {
+    setSessionCookie(
+      config.threadId,
+      THREAD_ID_COOKIE_NAME,
+      window.location.protocol,
+      getStorageTtlSeconds()
+    );
+  }
+  return refreshedState;
+}
+
+function applyRefreshedPersistedStateOnLoad(
+  refreshedState: RefreshedPersistedState
+) {
+  state.hasActiveChat = refreshedState.activeChat || Boolean(config.threadId);
+  if (state.hasActiveChat) {
+    setBooleanInStorage(STORAGE_KEYS.activeChat, true, getStorageTtlMs());
+  }
+  state.launcherVisibilityForced =
+    (getNormalizedLauncherConfig().rememberVisibility &&
+      refreshedState.launcherForced) ||
+    false;
+  state.launcherGreetingDismissed = refreshedState.launcherGreetingDismissed;
+  if (isPersistOpenStateEnabled()) {
+    state.pinnedOpenPreference = refreshedState.pinnedOpen;
+    state.pinnedOpenPreferenceInitialized = true;
+  } else {
+    state.pinnedOpenPreference = false;
+    state.pinnedOpenPreferenceInitialized = false;
+  }
 }
 
 function getNormalizedHideTargets(): NormalizedHideTargets {
@@ -301,7 +370,7 @@ function setPinnedOpenState(value: boolean) {
     return;
   }
   state.pinnedOpenPreferenceInitialized = true;
-  setBooleanInStorage(STORAGE_KEYS.pinnedOpen, value);
+  setBooleanInStorage(STORAGE_KEYS.pinnedOpen, value, getStorageTtlMs());
 }
 
 function forceLauncherVisibility() {
@@ -312,14 +381,11 @@ function forceLauncherVisibility() {
     return;
   }
   state.launcherVisibilityForced = true;
-  setBooleanInStorage(STORAGE_KEYS.launcherForced, true);
+  setBooleanInStorage(STORAGE_KEYS.launcherForced, true, getStorageTtlMs());
 }
 
 const initialActiveChatState =
   readBooleanFromStorage(STORAGE_KEYS.activeChat) || Boolean(config.threadId);
-if (initialActiveChatState) {
-  setBooleanInStorage(STORAGE_KEYS.activeChat, true);
-}
 const state = createInitialWidgetState({
   hasActiveChat: initialActiveChatState,
   launcherVisibilityForced:
@@ -483,14 +549,14 @@ function applyActiveStateToLauncher() {
 
 function markChatAsActive() {
   state.hasActiveChat = true;
-  setBooleanInStorage(STORAGE_KEYS.activeChat, true);
+  setBooleanInStorage(STORAGE_KEYS.activeChat, true, getStorageTtlMs());
   applyActiveStateToLauncher();
   updatePrivacyLinkVisibility();
 }
 
 function resetActiveChatIndicator() {
   state.hasActiveChat = false;
-  setBooleanInStorage(STORAGE_KEYS.activeChat, false);
+  setBooleanInStorage(STORAGE_KEYS.activeChat, false, getStorageTtlMs());
   applyActiveStateToLauncher();
   updatePrivacyLinkVisibility();
 }
@@ -499,7 +565,11 @@ function dismissLauncherGreeting(persist = true) {
   if (!launcherGreetingElement) {
     if (persist) {
       state.launcherGreetingDismissed = true;
-      setBooleanInStorage(STORAGE_KEYS.launcherGreetingDismissed, true);
+      setBooleanInStorage(
+        STORAGE_KEYS.launcherGreetingDismissed,
+        true,
+        getStorageTtlMs()
+      );
     }
     return;
   }
@@ -507,7 +577,11 @@ function dismissLauncherGreeting(persist = true) {
   launcherGreetingElement.style.display = "none";
   if (persist) {
     state.launcherGreetingDismissed = true;
-    setBooleanInStorage(STORAGE_KEYS.launcherGreetingDismissed, true);
+    setBooleanInStorage(
+      STORAGE_KEYS.launcherGreetingDismissed,
+      true,
+      getStorageTtlMs()
+    );
   }
 }
 
@@ -932,6 +1006,9 @@ async function init() {
   // Slight delay to allow DOMContent to be fully loaded
   // (particularly for the button to be available in the `if (config.openOnLoad)` block below).
   await new Promise((resolve) => setTimeout(resolve, 10));
+  Object.assign(config, (window as any).buildShipChatWidget?.config ?? {});
+  const refreshedPersistedState = refreshPersistedStateTtlOnLoad();
+  applyRefreshedPersistedStateOnLoad(refreshedPersistedState);
 
   document
     .querySelector("[data-chat-widget-button]")
@@ -1377,7 +1454,12 @@ const handleStreamedResponse = async (res: Response) => {
   if (config.threadId) {
     markChatAsActive();
     // Set threadId from config to session cookie
-	  setSessionCookie(config.threadId);  
+	  setSessionCookie(
+      config.threadId,
+      THREAD_ID_COOKIE_NAME,
+      window.location.protocol,
+      getStorageTtlSeconds()
+    );
       // Add new message to thread history cache
     await appendToThreadHistoryRaw(
       {

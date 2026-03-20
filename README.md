@@ -128,9 +128,24 @@ The widget can be customized by editing the properties present in the `window.bu
 | `window.buildShipChatWidget.config.privacyInfoLinkText` | Optional | Label of the privacy link shown in a fresh conversation. Defaults to `Infos zum Datenschutz`. |
 | `window.buildShipChatWidget.config.privacyNoticeText` | Optional | Privacy notice content rendered inside the widget. Defaults to `Bitte geben Sie keine sensiblen Daten ein.` |
 | `window.buildShipChatWidget.config.launcher` | Optional | Floating launcher configuration. See [Launcher configuration](#launcher-configuration). |
+| `window.buildShipChatWidget.config.storage` | Optional | Storage behavior for widget state and thread cookie TTL. See [TTL configuration](#ttl-configuration). |
 | `window.buildShipChatWidget.config.persistOpenState` | Optional | Persists whether the widget was pinned open across reloads. Defaults to `false`. |
 | `window.buildShipChatWidget.config.collapseTabLabel` | Optional | Accessible label and visible text for the collapse tab. Defaults to `Hide chatbot`. |
 | `window.buildShipChatWidget.config.hideTargets` | Optional | Hides selected DOM elements while the widget is open or the launcher is visible. See [Hide targets](#hide-targets). |
+
+#### TTL configuration
+
+Use `window.buildShipChatWidget.config.storage` to configure persistence TTL.
+
+| Property | Type | Description |
+| -------- | ---- | ----------- |
+| `ttlDays` | `number` | TTL in days for widget-managed local storage entries and the `threadId` cookie `Max-Age`. Default: `1`. |
+
+Behavior:
+
+- The same `ttlDays` value is used for both Local Storage and cookie TTL.
+- TTL is applied as sliding expiration and is refreshed on page load when valid values exist.
+- Invalid or expired persisted values are treated as missing and cleaned up.
 
 #### Modern configuration example
 
@@ -148,6 +163,9 @@ The widget can be customized by editing the properties present in the `window.bu
     window.buildShipChatWidget.config.linkTarget = "blank";
     window.buildShipChatWidget.config.openOnLoad = false;
     window.buildShipChatWidget.config.persistOpenState = true;
+    window.buildShipChatWidget.config.storage = {
+      ttlDays: 1,
+    };
     window.buildShipChatWidget.config.addClearChat = true;
     window.buildShipChatWidget.config.urlFetchThreadHistory =
       "https://<project_id>.buildship.run/thread-history/load";
